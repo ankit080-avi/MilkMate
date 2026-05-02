@@ -1069,6 +1069,26 @@ function viewLogin() {
         ])
       ]));
       form.appendChild(el('button', { class: 'btn btn-primary btn-block', type: 'submit' }, t('continue_btn')));
+      // Explicit signup CTA — routes new dairy owners straight to the signup form.
+      form.appendChild(el('div', {
+        class: 'signup-cta',
+        style: 'text-align:center;margin-top:18px;font-size:14px;color:var(--text-muted)'
+      }, [
+        'New dairy owner? ',
+        el('button', {
+          class: 'link-btn',
+          type: 'button',
+          style: 'display:inline;padding:0;font-weight:700',
+          onclick: () => {
+            if (state.mobile.length !== 10) return toast('Enter your 10-digit mobile first', 'error');
+            const existing = Store.data.users.find(u => u.mobile === state.mobile);
+            if (existing) return toast('This number is already registered — just tap Continue', 'error');
+            state.stage = 'signup';
+            state.signupRole = 'owner';
+            render();
+          }
+        }, 'Sign up →')
+      ]));
 
     } else if (state.stage === 'otp') {
       form.appendChild(el('div', { class: 'field' }, [
