@@ -1,10 +1,5 @@
 // ────────────────────────────────────────────────────────────────────
-// Firebase config for FCM (Cloud Messaging).
-// Fill these in from your Firebase project once it's created:
-//   1. https://console.firebase.google.com/ → Add project (free)
-//   2. Project settings → Your apps → Web → register app → copy the config
-//   3. Project settings → Cloud Messaging → Web Push certificates →
-//      generate VAPID key pair → copy the public key into vapidKey below
+// Firebase config for FCM (Cloud Messaging) — Project: milkmate-d77d6
 //
 // Uses `self` so the same file works inside the firebase-messaging service
 // worker AND on the main page (in browsers, window === self).
@@ -14,11 +9,14 @@
 // lives only as a Supabase Edge Function secret.
 // ────────────────────────────────────────────────────────────────────
 self.FIREBASE_CONFIG = {
-  apiKey: '',                 // e.g. 'AIzaSyB...'
-  authDomain: '',             // e.g. 'milkmate-xxx.firebaseapp.com'
-  projectId: '',              // e.g. 'milkmate-xxx'
-  storageBucket: '',          // e.g. 'milkmate-xxx.appspot.com'
-  messagingSenderId: '',      // e.g. '1234567890'
-  appId: '',                  // e.g. '1:1234567890:web:abcdef'
-  vapidKey: ''                // e.g. 'BNZ3...' (Web Push public key)
+  apiKey: 'AIzaSyCXIBSyA0rOiEvNnLIA84mBX0cATv-mbV4',
+  authDomain: 'milkmate-d77d6.firebaseapp.com',
+  projectId: 'milkmate-d77d6',
+  storageBucket: 'milkmate-d77d6.firebasestorage.app',
+  messagingSenderId: '719675567152',
+  // ⚠ TODO: Register a WEB app in Firebase console (separate from Android),
+  // then paste its appId here. Format: '1:719675567152:web:xxxxx'
+  // https://console.firebase.google.com/u/0/project/milkmate-d77d6/settings/general
+  appId: '',
+  vapidKey: 'BLJ2OhabpKKqH-Mm7bhbEHqDXA2jKZ_1ef_9iwKrbxAGKpa3JmR0_gN3_cZG7UKpDrC3F9WkYDyuoZWk7OvQjnM'
 };
