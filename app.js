@@ -594,6 +594,7 @@ function defaultDairySettings() {
     businessName: 'My Dairy',
     businessAddress: '',
     businessPhone: '',
+    toastEnabled: true,
     products: {
       paneer: { name: 'Paneer (250g)', price: 110, emoji: '🧀', active: true, stock: 0 },
       curd:   { name: 'Curd (500g)',   price: 50,  emoji: '🥛', active: true, stock: 0 },
@@ -1104,6 +1105,7 @@ function notify(userId, type, title, body) {
   }
 }
 function showNotificationPopup(type, title, body) {
+   if (Store.data.settings && Store.data.settings.toastEnabled === false) return;
   // ── DEDUP GUARD ──
   const dedupKey = type + '|' + title + '|' + body;
   if (showNotificationPopup._lastKey === dedupKey && 
