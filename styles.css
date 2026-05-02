@@ -529,7 +529,9 @@ body.no-tabs .view { padding-bottom: 0; }
   pointer-events: none;
 }
 .toast {
-  background: var(--text); color: #fff;
+  /* Toast is always a dark bubble — hardcode so it doesn't invert in dark mode
+     (where var(--text) becomes white and would clash with the white text). */
+  background: #1A2233; color: #fff;
   padding: 10px 16px;
   border-radius: 100px;
   font-size: 13px; font-weight: 500;
