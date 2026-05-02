@@ -1,7 +1,7 @@
 // MilkMate service worker — network-first so updates show immediately,
 // cache exists for offline fallback.
 
-const VERSION = 'milkmate-v22';
+const VERSION = 'milkmate-v23';
 const CORE = ['./', './index.html', './styles.css', './app.js',
               './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 

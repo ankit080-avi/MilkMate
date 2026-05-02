@@ -832,20 +832,28 @@ function setSession(user) {
   }
 }
 
-// Returns a small "● online" pill if the given user is currently active in the presence channel
+// Returns a "● Online" pill that's hidden via CSS when the user is offline.
+// Always emit the node so the presence-change handler can toggle visibility live
+// without re-rendering the whole page.
 function presenceBadge(userId) {
   const isOnline = Store.Presence && Store.Presence.has(userId);
-  if (!isOnline) return null;
-  return el('span', { class: 'presence-badge', 'data-user-id': userId },
-    [el('span', { class: 'presence-dot' }), 'Online']);
+  return el('span', {
+    class: 'presence-badge' + (isOnline ? '' : ' is-offline'),
+    'data-user-id': userId
+  }, [el('span', { class: 'presence-dot' }), 'Online']);
 }
 
-// Re-render whenever presence syncs. Update inline dots without redrawing the whole page.
+// Re-render whenever presence syncs. Updates inline dots AND text pills live.
 window.addEventListener('mm-presence-changed', () => {
   document.querySelectorAll('.avatar-online-wrap[data-user-id]').forEach(node => {
     const uid_ = node.getAttribute('data-user-id');
     const online = Store.Presence && Store.Presence.has(uid_);
     node.classList.toggle('is-online', !!online);
+  });
+  document.querySelectorAll('.presence-badge[data-user-id]').forEach(node => {
+    const uid_ = node.getAttribute('data-user-id');
+    const online = Store.Presence && Store.Presence.has(uid_);
+    node.classList.toggle('is-offline', !online);
   });
 });
 function restoreSession() {

@@ -775,6 +775,7 @@ body.no-tabs .wa-fab { bottom: calc(var(--safe-bottom) + 16px); }
   font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 999px; margin-top: 4px;
 }
+.presence-badge.is-offline { display: none; }
 .presence-dot {
   width: 8px; height: 8px; background: #22C55E;
   border-radius: 50%; display: inline-block;
