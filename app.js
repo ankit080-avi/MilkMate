@@ -358,7 +358,8 @@ const Store = {
   subscribeRealtime() {
     if (!sb || this._channel) return;
     this._channel = sb.channel('mm-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+      //.on('postgres_changes', { event: '*', schema: 'public' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
       if (payload.table === 'notifications') return; // ← ADD KARO
         clearTimeout(this._refetchTimer);
         this._refetchTimer = setTimeout(() => {
@@ -1989,8 +1990,11 @@ function adminSettingsModal() {
   const sections = [
     { key: 'upi',   icon: '💳', title: 'UPI Payments',       subtitle: 'For owner subscription payments' },
     { key: 'plans', icon: '💰', title: 'Subscription Plans', subtitle: 'Edit plan prices' },
-    { key: 'theme', icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
-    { key: 'lang',  icon: '🌐', title: 'Language',           subtitle: 'App display language' }
+    //{ key: 'theme', icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
+    //{ key: 'lang',  icon: '🌐', title: 'Language',           subtitle: 'App display language' }
+   { key: 'notifications', icon: '🔔', title: 'Notifications', subtitle: 'Toast popups on/off' },
+    { key: 'theme',    icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
+    { key: 'lang',     icon: '🌐', title: 'Language',           subtitle: 'English, Hindi, Marathi' }     
   ];
 
   // Snapshot whatever's typed before re-render so values aren't lost on navigation
@@ -4210,6 +4214,37 @@ function ownerSettings(target) {
   }
 
   // ─── Language ────────────────────────────────────────────
+else if (_ownerSettingsSection === 'notifications') {
+    const s = Store.data.settings;
+    const isEnabled = s.toastEnabled !== false;
+    page.appendChild(el('div', { class: 'card' }, [
+      el('div', { class: 'row', style: 'justify-content:space-between;align-items:center;padding:8px 0' }, [
+        el('div', {}, [
+          el('div', { style: 'font-weight:600;font-size:15px' }, '🔔 In-app toast popups'),
+          el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:2px' },
+            'Delivery, order, payment ke popup notifications')
+        ]),
+        el('input', {
+          type: 'checkbox',
+          checked: isEnabled,
+          style: 'width:22px;height:22px;accent-color:var(--primary);cursor:pointer',
+          onchange: (e) => {
+            s.toastEnabled = e.target.checked;
+            Store.save();
+            toast(e.target.checked ? '🔔 Notifications ON' : '🔕 Notifications OFF');
+            ownerSettings('notifications');
+          }
+        })
+      ]),
+      el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)' },
+        isEnabled
+          ? '✅ Popups active — delivery, order, payment sab dikhega'
+          : '🔕 Popups band hain — sirf bell icon mein count dikhega'
+      )
+    ]));
+  }
+
+     
   else if (_ownerSettingsSection === 'lang') {
     [
       { v: 'en', l: 'English' },
