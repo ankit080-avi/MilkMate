@@ -385,23 +385,108 @@ end $$;
 
 ```
 D:\milkmate\
-├── index.html              shell + script tags + jsPDF + Supabase JS CDN
-├── styles.css              mobile-first design system
-├── app.js                  router + Store + multi-tenant logic + subscription guard
+├── index.html              shell + script tags + jsPDF + Supabase JS CDN + firebase-config
+├── styles.css              mobile-first design system (incl. dark theme)
+├── app.js                  router + Store + multi-tenant logic + subscription guard + Push module
 ├── manifest.webmanifest    PWA manifest
 ├── sw.js                   network-first service worker (bump VERSION on changes)
+├── firebase-config.js      Firebase web config (apiKey, projectId, vapidKey, etc.) — public values only
+├── firebase-messaging-sw.js  classic service worker that handles background FCM pushes
 ├── qrcode.min.js           QR code generator (UPI payment QR)
 ├── icon-192.png / 512.png  home-screen icons
 ├── DEPLOY.md               this file
-├── .gitignore              keeps backups, build artifacts, APKs out of git
+├── .gitignore              keeps backups, build artifacts, APKs, *firebase-adminsdk* out of git
 ├── .github/workflows/
 │   └── deploy.yml          auto-deploys root to GitHub Pages on push to main
-├── MilkMate.apk            wrapped Android APK (thin shell pointing at GitHub Pages URL) — gitignored
+├── MilkMate.apk            wrapped Android APK (FCM plugin built in) — gitignored
+├── supabase/
+│   └── functions/
+│       └── send-push/      Edge Function that sends FCM pushes when notifications insert
+│           ├── index.ts    Deno runtime — generates Google OAuth JWT, calls FCM HTTP v1
+│           └── deno.json   import map for @supabase/supabase-js
 └── capacitor-app/          Capacitor project for rebuilding the APK
     ├── capacitor.config.json   has server.url → GitHub Pages URL
-    ├── android/                Android Studio project
+    ├── android/
+    │   └── app/
+    │       └── google-services.json  ← Firebase Android config (committed)
+    │                                   package: com.milkmate.app
     └── www/                    web assets (re-copied from root on rebuild)
 ```
+
+---
+
+## Push notifications (FCM) — architecture
+
+```
+[Customer order]                                  [Owner phone — locked / app closed]
+       │                                                       ▲
+       ▼                                                       │ FCM push (HIGH priority)
+notifications row INSERT                                       │
+       │                                                       │
+       ├─ Supabase Realtime ──── owner if foreground only      │
+       │                                                       │
+       └─ Database Webhook ──▶  Edge Function `send-push` ─────┘
+                                  │
+                                  ├─ Look up FCM tokens in `device_tokens` for userId
+                                  ├─ Mint Google OAuth JWT (RS256) using
+                                  │  FIREBASE_SERVICE_ACCOUNT secret
+                                  └─ POST FCM HTTP v1 → drop dead tokens (404/410)
+```
+
+### Firebase project — `milkmate-d77d6`
+- Project console: https://console.firebase.google.com/u/0/project/milkmate-d77d6/overview
+- Web app config baked into `firebase-config.js` (public — apiKey, appId, etc.)
+- VAPID public key for Web Push lives in same file
+- Android app: package `com.milkmate.app`, config in `capacitor-app/android/app/google-services.json`
+
+### Secrets (Supabase Dashboard → Project Settings → Edge Functions)
+| Secret | Source | What it's for |
+|---|---|---|
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase console → Service accounts → "Generate new private key" — **MINIFY the JSON to single line** before setting (multi-line bash arg passing breaks it) | Edge Function signs Google OAuth JWT to call FCM |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | auto-injected by Supabase | Edge Function reads `device_tokens` |
+
+### Database Webhook (Supabase Dashboard → Database → Webhooks)
+- Name: `notifications_send_push`
+- Table: `notifications` · Event: **Insert**
+- Type: **Supabase Edge Functions** · Function: `send-push` · Method: POST
+- Auto-includes the service role key as Authorization
+
+### Tables
+- `device_tokens(id, userId, token, platform, created_at, updated_at)` — written by frontend `Push` module on login, read by Edge Function. Cleared on logout + on FCM 404/410.
+
+### Frontend (`Push` module in app.js)
+- Detects Capacitor (Android) vs Web; on either, calls platform-appropriate registration.
+- Capacitor: uses `@capacitor/push-notifications@8.0.3` plugin.
+- Web: uses Firebase JS SDK (`firebase-app`, `firebase-messaging` from CDN) + `firebase-messaging-sw.js`.
+- Permission requested ~3s after login (UX option C — "after first meaningful event").
+- Foreground messages shown via `showNotificationPopup()` toast, not as system notification (avoids double-buzz when app is open).
+
+### Deploying the Edge Function
+```bash
+# One-time CLI auth (in user's terminal — opens browser)
+npx supabase login
+
+# Deploy
+cd D:\milkmate
+npx supabase functions deploy send-push --no-verify-jwt
+
+# Set / update the FCM service account secret (always minify JSON first!)
+node -e 'process.stdout.write(JSON.stringify(require("./milkmate-d77d6-firebase-adminsdk-fbsvc-XXXXX.json")))' > /tmp/sa-min.json
+npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat /tmp/sa-min.json)"
+rm /tmp/sa-min.json
+```
+
+### Quick test
+```bash
+curl -s -X POST "https://kmauurezrgovucpbkekq.supabase.co/functions/v1/send-push" \
+  -H "Content-Type: application/json" \
+  -d '{"record":{"userId":"u_admin","title":"Test","body":"Hi","type":"test","id":"t1"}}'
+# Expected: {"ok":true,"sent":N,"results":[{"id":"...","status":200,...}]}
+```
+
+If `sent: 0` → no `device_tokens` row for that userId (user hasn't installed the FCM-enabled APK or hasn't granted permission yet).
+If `status: 401` → JWT signing failed, check service-account secret is valid + minified.
+If `status: 404` from FCM → token is stale; the function deletes it automatically.
 
 ---
 

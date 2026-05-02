@@ -22,11 +22,22 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const FIREBASE_SERVICE_ACCOUNT = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
 
+// Parse service account at module load. Wrap in try/catch so a malformed secret
+// doesn't crash the whole worker — handler returns a useful error message instead.
+let sa: any = null;
+let saError: string | null = null;
 if (!FIREBASE_SERVICE_ACCOUNT) {
-  console.error('FIREBASE_SERVICE_ACCOUNT secret is not set');
+  saError = 'FIREBASE_SERVICE_ACCOUNT secret is not set';
+  console.error(saError);
+} else {
+  try {
+    sa = JSON.parse(FIREBASE_SERVICE_ACCOUNT);
+  } catch (e) {
+    saError = 'JSON.parse(FIREBASE_SERVICE_ACCOUNT) failed: ' + (e as Error).message
+      + ' — first 80 chars: ' + FIREBASE_SERVICE_ACCOUNT.slice(0, 80);
+    console.error(saError);
+  }
 }
-
-const sa = FIREBASE_SERVICE_ACCOUNT ? JSON.parse(FIREBASE_SERVICE_ACCOUNT) : null;
 const FCM_URL = sa ? `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send` : '';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
@@ -121,7 +132,7 @@ Deno.serve(async (req) => {
     return new Response('Method Not Allowed', { status: 405 });
   }
   if (!sa) {
-    return new Response(JSON.stringify({ ok: false, error: 'FIREBASE_SERVICE_ACCOUNT not set' }), {
+    return new Response(JSON.stringify({ ok: false, error: saError || 'FIREBASE_SERVICE_ACCOUNT not set' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
