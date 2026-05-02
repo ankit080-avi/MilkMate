@@ -1,0 +1,40 @@
+# Local secrets / notes (kept out of repo)
+DEPLOY.local.md
+.env
+.env.local
+
+# Tooling caches (host-machine specific)
+.netlify/
+.claude/
+
+# Backup snapshots
+backup-*/
+*-backup-*.zip
+milkmate-backup-*/
+
+# Capacitor / Android build artifacts
+capacitor-app/node_modules/
+capacitor-app/android/.gradle/
+capacitor-app/android/build/
+capacitor-app/android/app/build/
+capacitor-app/android/local.properties
+capacitor-app/android/.idea/
+capacitor-app/android/app/release/
+capacitor-app/android/captures/
+capacitor-app/www/
+
+# Built APK lives outside source control (publish via GitHub Releases instead)
+*.apk
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# npm
+node_modules/
+npm-debug.log*

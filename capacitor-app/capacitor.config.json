@@ -1,0 +1,13 @@
+{
+  "appId": "com.milkmate.app",
+  "appName": "MilkMate",
+  "webDir": "www",
+  "server": {
+    "url": "https://imaginative-kulfi-45b68b.netlify.app",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": {
+    "backgroundColor": "#FAFAF7"
+  }
+}
