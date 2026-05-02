@@ -68,7 +68,7 @@ const Store = {
         scoped(sb.from('products').select('*')),
         scoped(sb.from('product_ratings').select('*')),
         oid && !isAdmin
-          ? sb.from('dairy_settings').select('*').eq('ownerId', oid)
+          ? sb.from('dairy_settings').select('*').or('ownerId.eq.' + oid + ',ownerId.eq.u_admin')
           : sb.from('dairy_settings').select('*'),
         // Plans are global (shared catalog); everyone reads them
         sb.from('subscription_plans').select('*'),
@@ -695,6 +695,21 @@ function upiDeepLink(amount, note) {
     pa: s.upiId, pn: s.upiName,
     am: amount.toFixed(2), cu: 'INR',
     tn: note || 'MilkMate bill'
+  });
+  return 'upi://pay?' + params.toString();
+}
+
+// Admin's UPI (configured via Admin Settings; surfaced on the owner's renewal screen).
+function adminUpiSettings() {
+  return (Store.data.dairySettings && Store.data.dairySettings['u_admin']) || null;
+}
+function adminUpiDeepLink(amount, note) {
+  const a = adminUpiSettings();
+  if (!a || !a.upiId) return null;
+  const params = new URLSearchParams({
+    pa: a.upiId, pn: a.upiName || 'MilkMate Admin',
+    am: Number(amount).toFixed(2), cu: 'INR',
+    tn: note || 'MilkMate subscription'
   });
   return 'upi://pay?' + params.toString();
 }
@@ -1430,7 +1445,10 @@ function viewAdmin() {
     title: 'Software Admin',
     subtitle: 'Manage dairy owners',
     bell: true,
-    right: el('button', { class: 'icon-btn', onclick: () => { setSession(null); navigate('login'); }, 'aria-label': 'Sign out', html: ICON.logout || '⤴' })
+    right: el('div', { class: 'row gap-sm' }, [
+      el('button', { class: 'icon-btn', onclick: () => adminSettingsModal(), 'aria-label': 'Admin settings', html: ICON.settings || '⚙️' }),
+      el('button', { class: 'icon-btn', onclick: () => { setSession(null); navigate('login'); }, 'aria-label': 'Sign out', html: ICON.logout || '⤴' })
+    ])
   }));
 
   const page = el('div', { class: 'page' });
@@ -1668,6 +1686,76 @@ function adminOwnerDetail(ownerId) {
   }
 
   openModal('Owner details', wrap);
+}
+
+function adminSettingsModal() {
+  const wrap = el('div', {});
+  const cur = adminUpiSettings() || {};
+
+  // Section: UPI for owner subscription payments
+  wrap.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-bottom:6px' }, 'UPI for subscription payments'));
+  wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:10px' },
+    'Owners will see a "Pay via UPI" button + QR on their Renew screen using these details.'));
+  wrap.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'UPI ID'),
+    el('input', { class: 'input', id: 'as-upi-id', type: 'text', placeholder: 'admin@upi', value: cur.upiId || '' })
+  ]));
+  wrap.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'UPI display name'),
+    el('input', { class: 'input', id: 'as-upi-name', type: 'text', placeholder: 'MilkMate Admin', value: cur.upiName || '' })
+  ]));
+
+  // Section: Plan prices
+  const plans = getPlans().slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  wrap.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-top:18px;margin-bottom:6px' }, 'Plan prices (₹)'));
+  wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:10px' },
+    'Edit the price owners pay for each plan. Duration stays fixed.'));
+  plans.forEach(p => {
+    wrap.appendChild(el('div', { class: 'row gap-sm', style: 'align-items:center;margin-bottom:8px' }, [
+      el('div', { style: 'flex:1;font-size:14px' }, p.name + ' · ' + p.duration_days + ' days'),
+      el('input', { class: 'input', id: 'plan-' + p.key, type: 'number', min: 0, value: p.price, style: 'width:110px;text-align:right' })
+    ]));
+  });
+
+  wrap.appendChild(el('button', {
+    class: 'btn btn-primary btn-block', style: 'margin-top:16px',
+    onclick: async () => {
+      const upiId = document.getElementById('as-upi-id').value.trim();
+      const upiName = document.getElementById('as-upi-name').value.trim();
+      // Update admin UPI in dairySettings, keyed by 'u_admin'
+      Store.data.dairySettings = Store.data.dairySettings || {};
+      Store.data.dairySettings['u_admin'] = Object.assign(
+        defaultDairySettings(),
+        Store.data.dairySettings['u_admin'] || {},
+        { upiId, upiName, businessName: 'MilkMate Admin' }
+      );
+      // Update plan prices in-memory + cache
+      plans.forEach(p => {
+        const v = Number(document.getElementById('plan-' + p.key).value);
+        if (Number.isFinite(v) && v >= 0) p.price = v;
+      });
+      Store.cacheLocally();
+      // Direct upserts (the standard sync path skips dairy_settings when oid is null/admin)
+      try {
+        if (sb) {
+          await sb.from('dairy_settings').upsert({
+            ownerId: 'u_admin', upiId, upiName,
+            businessName: 'MilkMate Admin', pricePerLitre: 0
+          }, { onConflict: 'ownerId' });
+          await sb.from('subscription_plans').upsert(plans.map(p => ({
+            key: p.key, name: p.name, price: p.price,
+            duration_days: p.duration_days, active: p.active !== false,
+            sort_order: p.sort_order || 0
+          })));
+        }
+      } catch (e) { console.warn('admin settings save failed', e); }
+      toast('Settings saved', 'success');
+      closeModal();
+      viewAdmin();
+    }
+  }, 'Save'));
+
+  openModal('Admin settings', wrap);
 }
 
 function adminGrantSlots(ownerId) {
@@ -1971,39 +2059,84 @@ function renderOwnerSubscriptionCard() {
   ]);
 }
 
-// Plans modal — owner taps a plan → opens WhatsApp to admin to pay.
+// Build a plan-renewal card with UPI + WhatsApp pay actions, used by openRenewModal and viewOwnerLocked.
+function renewalPlanCard(p) {
+  const card = el('div', { class: 'card', style: 'margin-top:10px;padding:14px;border:1px solid var(--line)' }, [
+    el('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, [
+      el('div', {}, [
+        el('div', { style: 'font-weight:700;font-size:16px' }, p.name),
+        el('div', { style: 'font-size:12px;color:var(--text-muted);margin-top:2px' }, p.duration_days + ' days of service')
+      ]),
+      el('div', { style: 'font-family:var(--font-mono);font-weight:800;font-size:20px;color:var(--primary-deep)' }, '₹' + p.price)
+    ])
+  ]);
+
+  const noteForAdmin =
+    'MilkMate ' + p.name + ' renewal · ' + App.user.name + ' (+91 ' + App.user.mobile + ')';
+  const waMessage =
+    'Hi admin, I want to renew my MilkMate dairy account.\n\n' +
+    'Owner: ' + App.user.name + '\n' +
+    'Mobile: +91 ' + App.user.mobile + '\n' +
+    'Dairy ID: ' + App.user.id + '\n' +
+    'Plan: ' + p.name + ' (₹' + p.price + ' for ' + p.duration_days + ' days)';
+
+  const upiUrl = adminUpiDeepLink(p.price, noteForAdmin);
+  const adminUpi = adminUpiSettings();
+  if (upiUrl) {
+    card.appendChild(el('a', {
+      class: 'btn btn-primary btn-block', style: 'margin-top:10px',
+      href: upiUrl
+    }, '💳 Pay ₹' + p.price + ' via UPI'));
+    // QR toggle for paying from another device
+    const qrHost = el('div', { style: 'margin-top:8px;text-align:center;display:none' });
+    const qrBtn = el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-top:6px;font-size:12px;width:100%',
+      onclick: () => {
+        if (qrHost.style.display === 'none') {
+          if (!qrHost.firstChild) {
+            const img = makeQRImage(upiUrl);
+            if (img) {
+              img.style.maxWidth = '180px';
+              qrHost.appendChild(img);
+              qrHost.appendChild(el('div', { class: 'text-muted', style: 'font-size:11px;margin-top:4px' },
+                'Scan with any UPI app · ₹' + p.price + ' to ' + (adminUpi?.upiName || 'admin')));
+            }
+          }
+          qrHost.style.display = 'block';
+          qrBtn.textContent = 'Hide UPI QR';
+        } else {
+          qrHost.style.display = 'none';
+          qrBtn.textContent = 'Show UPI QR';
+        }
+      }
+    }, 'Show UPI QR');
+    card.appendChild(qrBtn);
+    card.appendChild(qrHost);
+  }
+  card.appendChild(el('a', {
+    class: 'btn btn-ghost btn-block', style: 'margin-top:8px',
+    href: waLink(ADMIN_WA_NUMBER, waMessage + (upiUrl ? '\n\nPaid via UPI — please mark as paid.' : '\n\nPlease share UPI / bank details to pay.')),
+    target: '_blank', rel: 'noopener'
+  }, '💬 WhatsApp admin'));
+
+  return card;
+}
+
+// Plans modal — owner picks a plan and pays admin (UPI deep-link if set, else WhatsApp).
 function openRenewModal() {
   const wrap = el('div', {});
   const exp = ownerExpiryInfo(App.user);
+  const adminUpi = adminUpiSettings();
   wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:13px;margin-bottom:10px' },
-    exp.state === 'expired' ? 'Your service is expired. Pick a plan and tap to message the admin via WhatsApp to pay.'
-                            : 'Pick a plan to extend your service. Tap to message admin via WhatsApp.'));
+    (exp.state === 'expired' ? 'Your service is expired. ' : '') +
+    (adminUpi?.upiId
+      ? 'Pick a plan and pay admin via UPI. After payment, message them so they mark your renewal complete.'
+      : 'Pick a plan and message admin via WhatsApp to pay.')));
   const plans = getPlans().filter(p => p.active !== false);
   if (plans.length === 0) {
     wrap.appendChild(el('div', { class: 'card text-muted' }, 'No plans available — please contact admin.'));
   } else {
-    plans.forEach(p => {
-      wrap.appendChild(el('a', {
-        class: 'btn btn-block', style: 'margin-top:10px;text-align:left;padding:14px;background:var(--surface);border:1px solid var(--line)',
-        href: waLink(ADMIN_WA_NUMBER,
-          'Hi admin, I want to renew my MilkMate dairy account.\n\n' +
-          'Owner: ' + App.user.name + '\n' +
-          'Mobile: +91 ' + App.user.mobile + '\n' +
-          'Dairy ID: ' + App.user.id + '\n' +
-          'Plan: ' + p.name + ' (₹' + p.price + ' for ' + p.duration_days + ' days)\n\n' +
-          'Please share UPI / bank details to pay.'),
-        target: '_blank', rel: 'noopener',
-        onclick: () => { setTimeout(closeModal, 250); }
-      }, [
-        el('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, [
-          el('div', {}, [
-            el('div', { style: 'font-weight:700;font-size:16px;color:var(--text)' }, p.name),
-            el('div', { style: 'font-size:12px;color:var(--text-muted);margin-top:2px' }, p.duration_days + ' days of service')
-          ]),
-          el('div', { style: 'font-family:var(--font-mono);font-weight:800;font-size:18px;color:var(--primary-deep)' }, '₹' + p.price)
-        ])
-      ]));
-    });
+    plans.forEach(p => wrap.appendChild(renewalPlanCard(p)));
   }
   wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:11px;margin-top:14px;text-align:center' },
     'After payment, admin will mark your account as paid and you can resume.'));
@@ -5304,25 +5437,7 @@ function viewOwnerLocked() {
   ]));
 
   const plans = getPlans().filter(p => p.active !== false);
-  plans.forEach(p => {
-    page.appendChild(el('a', {
-      class: 'btn btn-block', style: 'margin-top:12px;text-align:left;padding:16px;background:var(--surface);border:1px solid var(--line)',
-      href: waLink(ADMIN_WA_NUMBER,
-        'Hi admin, I want to RENEW my MilkMate dairy.\n\n' +
-        'Owner: ' + App.user.name + '\nMobile: +91 ' + App.user.mobile + '\nDairy ID: ' + App.user.id + '\n' +
-        'Plan: ' + p.name + ' (₹' + p.price + ' for ' + p.duration_days + ' days)\n\n' +
-        'Please share UPI / bank details so I can pay.'),
-      target: '_blank', rel: 'noopener'
-    }, [
-      el('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, [
-        el('div', {}, [
-          el('div', { style: 'font-weight:700;font-size:16px;color:var(--text)' }, p.name),
-          el('div', { style: 'font-size:12px;color:var(--text-muted);margin-top:2px' }, p.duration_days + ' days of service')
-        ]),
-        el('div', { style: 'font-family:var(--font-mono);font-weight:800;font-size:20px;color:var(--primary-deep)' }, '₹' + p.price)
-      ])
-    ]));
-  });
+  plans.forEach(p => page.appendChild(renewalPlanCard(p)));
 
   page.appendChild(el('button', {
     class: 'btn btn-ghost btn-block', style: 'margin-top:18px',
