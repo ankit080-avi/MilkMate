@@ -46,6 +46,112 @@
   --safe-top: env(safe-area-inset-top, 0px);
 }
 
+/* Dark theme — applied via <html data-theme="dark">.
+   Auto mode is set in JS based on prefers-color-scheme. */
+[data-theme="dark"] {
+  --bg: #0F1419;
+  --surface: #1A2233;
+  --surface-2: #232B3D;
+  --text: #F5F7FA;
+  --text-muted: #B6BCC8;
+  --text-soft: #8A92A0;
+  --line: #2D3548;
+  --primary-soft: #073B2D;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,0.6);
+}
+
+/* Settings — Paytm-style list of rows that navigate to subpages */
+.settings-screen .sett-list {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.settings-screen .sett-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 14px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text);
+}
+.settings-screen .sett-row:last-child { border-bottom: 0; }
+.settings-screen .sett-row:hover,
+.settings-screen .sett-row:active { background: var(--surface-2); }
+.settings-screen .sett-row-icon {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: var(--surface-2);
+  border-radius: 10px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.settings-screen .sett-row-body {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.settings-screen .sett-row-title { font-weight: 700; font-size: 15px; color: var(--text); }
+.settings-screen .sett-row-sub { font-size: 12px; color: var(--text-muted); }
+.settings-screen .sett-row-arrow { color: var(--text-soft); font-size: 22px; flex-shrink: 0; }
+
+/* Subpage (after tapping a row) */
+.settings-screen .sett-subpage-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-screen .sett-back-btn {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  background: var(--surface-2);
+  border: 0; border-radius: 50%;
+  cursor: pointer; font-size: 20px;
+  color: var(--text); font-family: inherit;
+  flex-shrink: 0;
+}
+.settings-screen .sett-back-btn:hover { background: var(--line); }
+.settings-screen .sett-subpage-title { font-weight: 700; font-size: 17px; }
+
+/* Radio row — used for Theme / Language pickers */
+.settings-screen .sett-radio-row {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+.settings-screen .sett-radio-row:hover { background: var(--surface-2); }
+.settings-screen .sett-radio-row.selected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.settings-screen .sett-radio-text { display: flex; flex-direction: column; gap: 2px; }
+.settings-screen .sett-radio-title { font-weight: 600; font-size: 15px; }
+.settings-screen .sett-radio-sub { font-size: 12px; color: var(--text-muted); }
+.settings-screen .sett-radio-tick {
+  color: var(--primary);
+  font-weight: 800;
+  font-size: 18px;
+  width: 22px;
+  text-align: center;
+}
+
 html, body { min-height: 100%; }
 body {
   font-family: var(--font-body);

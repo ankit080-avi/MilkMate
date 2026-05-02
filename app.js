@@ -688,6 +688,31 @@ function setLanguage(lang) {
   document.documentElement.lang = lang;
 }
 
+// Theme: 'light' | 'dark' | 'auto'. Applied via <html data-theme="...">.
+let _autoThemeMql = null;
+let _autoThemeHandler = null;
+function applyTheme(pref) {
+  const root = document.documentElement;
+  // Tear down any prior auto-mode listener
+  if (_autoThemeMql && _autoThemeHandler) {
+    _autoThemeMql.removeEventListener('change', _autoThemeHandler);
+    _autoThemeMql = null; _autoThemeHandler = null;
+  }
+  if (pref === 'auto' || !pref) {
+    _autoThemeMql = window.matchMedia('(prefers-color-scheme: dark)');
+    _autoThemeHandler = () => { root.dataset.theme = _autoThemeMql.matches ? 'dark' : 'light'; };
+    _autoThemeMql.addEventListener('change', _autoThemeHandler);
+    _autoThemeHandler();
+  } else {
+    root.dataset.theme = pref;
+  }
+}
+function setTheme(pref) {
+  Store.data.theme = pref;
+  Store.save();
+  applyTheme(pref);
+}
+
 /* ─── UPI deep link + QR generation ────────────────────────── */
 function upiDeepLink(amount, note) {
   const s = Store.data.settings;
@@ -1689,73 +1714,178 @@ function adminOwnerDetail(ownerId) {
 }
 
 function adminSettingsModal() {
-  const wrap = el('div', {});
   const cur = adminUpiSettings() || {};
-
-  // Section: UPI for owner subscription payments
-  wrap.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-bottom:6px' }, 'UPI for subscription payments'));
-  wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:10px' },
-    'Owners will see a "Pay via UPI" button + QR on their Renew screen using these details.'));
-  wrap.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'UPI ID'),
-    el('input', { class: 'input', id: 'as-upi-id', type: 'text', placeholder: 'admin@upi', value: cur.upiId || '' })
-  ]));
-  wrap.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'UPI display name'),
-    el('input', { class: 'input', id: 'as-upi-name', type: 'text', placeholder: 'MilkMate Admin', value: cur.upiName || '' })
-  ]));
-
-  // Section: Plan prices
   const plans = getPlans().slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  wrap.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-top:18px;margin-bottom:6px' }, 'Plan prices (₹)'));
-  wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:10px' },
-    'Edit the price owners pay for each plan. Duration stays fixed.'));
-  plans.forEach(p => {
-    wrap.appendChild(el('div', { class: 'row gap-sm', style: 'align-items:center;margin-bottom:8px' }, [
-      el('div', { style: 'flex:1;font-size:14px' }, p.name + ' · ' + p.duration_days + ' days'),
-      el('input', { class: 'input', id: 'plan-' + p.key, type: 'number', min: 0, value: p.price, style: 'width:110px;text-align:right' })
-    ]));
-  });
+  const pending = {
+    upiId: cur.upiId || '',
+    upiName: cur.upiName || '',
+    planPrices: Object.fromEntries(plans.map(p => [p.key, p.price])),
+    theme: Store.data.theme || 'auto',
+    lang: Store.data.language || 'en'
+  };
+  let view = 'list'; // 'list' | 'upi' | 'plans' | 'theme' | 'lang'
 
-  wrap.appendChild(el('button', {
-    class: 'btn btn-primary btn-block', style: 'margin-top:16px',
-    onclick: async () => {
-      const upiId = document.getElementById('as-upi-id').value.trim();
-      const upiName = document.getElementById('as-upi-name').value.trim();
-      // Update admin UPI in dairySettings, keyed by 'u_admin'
-      Store.data.dairySettings = Store.data.dairySettings || {};
-      Store.data.dairySettings['u_admin'] = Object.assign(
-        defaultDairySettings(),
-        Store.data.dairySettings['u_admin'] || {},
-        { upiId, upiName, businessName: 'MilkMate Admin' }
-      );
-      // Update plan prices in-memory + cache
-      plans.forEach(p => {
-        const v = Number(document.getElementById('plan-' + p.key).value);
-        if (Number.isFinite(v) && v >= 0) p.price = v;
+  const sections = [
+    { key: 'upi',   icon: '💳', title: 'UPI Payments',       subtitle: 'For owner subscription payments' },
+    { key: 'plans', icon: '💰', title: 'Subscription Plans', subtitle: 'Edit plan prices' },
+    { key: 'theme', icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
+    { key: 'lang',  icon: '🌐', title: 'Language',           subtitle: 'App display language' }
+  ];
+
+  // Snapshot whatever's typed before re-render so values aren't lost on navigation
+  function commitOpenForm() {
+    const upi1 = document.getElementById('as-upi-id'); if (upi1) pending.upiId = upi1.value.trim();
+    const upi2 = document.getElementById('as-upi-name'); if (upi2) pending.upiName = upi2.value.trim();
+    plans.forEach(p => {
+      const inp = document.getElementById('plan-' + p.key);
+      if (inp) {
+        const v = Number(inp.value);
+        if (Number.isFinite(v) && v >= 0) pending.planPrices[p.key] = v;
+      }
+    });
+  }
+
+  const wrap = el('div', { class: 'settings-screen' });
+
+  async function doSave() {
+    commitOpenForm();
+    Store.data.dairySettings = Store.data.dairySettings || {};
+    Store.data.dairySettings['u_admin'] = Object.assign(
+      defaultDairySettings(),
+      Store.data.dairySettings['u_admin'] || {},
+      { upiId: pending.upiId, upiName: pending.upiName, businessName: 'MilkMate Admin' }
+    );
+    plans.forEach(p => {
+      const v = pending.planPrices[p.key];
+      if (Number.isFinite(v) && v >= 0) p.price = v;
+    });
+    if (pending.theme !== Store.data.theme) setTheme(pending.theme);
+    if (pending.lang !== Store.data.language) setLanguage(pending.lang);
+    Store.cacheLocally();
+    try {
+      if (sb) {
+        await sb.from('dairy_settings').upsert({
+          ownerId: 'u_admin', upiId: pending.upiId, upiName: pending.upiName,
+          businessName: 'MilkMate Admin', pricePerLitre: 0
+        }, { onConflict: 'ownerId' });
+        await sb.from('subscription_plans').upsert(plans.map(p => ({
+          key: p.key, name: p.name, price: p.price,
+          duration_days: p.duration_days, active: p.active !== false,
+          sort_order: p.sort_order || 0
+        })));
+      }
+    } catch (e) { console.warn('admin settings save failed', e); }
+    toast('Settings saved', 'success');
+    closeModal();
+    viewAdmin();
+  }
+
+  function render() {
+    commitOpenForm();
+    clear(wrap);
+
+    if (view === 'list') {
+      // Paytm-style list of category rows
+      const list = el('div', { class: 'sett-list' });
+      sections.forEach(sec => {
+        list.appendChild(el('button', {
+          type: 'button', class: 'sett-row',
+          onclick: () => { view = sec.key; render(); }
+        }, [
+          el('span', { class: 'sett-row-icon' }, sec.icon),
+          el('span', { class: 'sett-row-body' }, [
+            el('span', { class: 'sett-row-title' }, sec.title),
+            el('span', { class: 'sett-row-sub' }, sec.subtitle)
+          ]),
+          el('span', { class: 'sett-row-arrow' }, '›')
+        ]));
       });
-      Store.cacheLocally();
-      // Direct upserts (the standard sync path skips dairy_settings when oid is null/admin)
-      try {
-        if (sb) {
-          await sb.from('dairy_settings').upsert({
-            ownerId: 'u_admin', upiId, upiName,
-            businessName: 'MilkMate Admin', pricePerLitre: 0
-          }, { onConflict: 'ownerId' });
-          await sb.from('subscription_plans').upsert(plans.map(p => ({
-            key: p.key, name: p.name, price: p.price,
-            duration_days: p.duration_days, active: p.active !== false,
-            sort_order: p.sort_order || 0
-          })));
-        }
-      } catch (e) { console.warn('admin settings save failed', e); }
-      toast('Settings saved', 'success');
-      closeModal();
-      viewAdmin();
+      wrap.appendChild(list);
+      wrap.appendChild(el('button', {
+        class: 'btn btn-primary btn-block', style: 'margin-top:16px',
+        onclick: doSave
+      }, 'Save changes'));
+      return;
     }
-  }, 'Save'));
 
-  openModal('Admin settings', wrap);
+    // Subpage header — back arrow + title
+    const sec = sections.find(s => s.key === view);
+    wrap.appendChild(el('div', { class: 'sett-subpage-head' }, [
+      el('button', {
+        type: 'button', class: 'sett-back-btn',
+        onclick: () => { view = 'list'; render(); },
+        'aria-label': 'Back'
+      }, '←'),
+      el('span', { class: 'sett-subpage-title' }, sec.icon + '  ' + sec.title)
+    ]));
+
+    const body = el('div', { class: 'sett-subpage-body' });
+    if (view === 'upi') {
+      body.appendChild(el('div', { class: 'field' }, [
+        el('label', {}, 'UPI ID'),
+        el('input', { class: 'input', id: 'as-upi-id', type: 'text', placeholder: 'admin@upi', value: pending.upiId })
+      ]));
+      body.appendChild(el('div', { class: 'field' }, [
+        el('label', {}, 'UPI display name'),
+        el('input', { class: 'input', id: 'as-upi-name', type: 'text', placeholder: 'MilkMate Admin', value: pending.upiName })
+      ]));
+      body.appendChild(el('div', { class: 'text-muted', style: 'font-size:12px' },
+        'Owners see Pay-via-UPI + QR on the Renew screen using this UPI.'));
+    } else if (view === 'plans') {
+      plans.forEach(p => {
+        body.appendChild(el('div', { class: 'row gap-sm', style: 'align-items:center;margin-bottom:10px' }, [
+          el('span', { style: 'flex:1;font-size:14px' }, p.name + ' · ' + p.duration_days + ' days'),
+          el('input', { class: 'input', id: 'plan-' + p.key, type: 'number', min: 0, value: pending.planPrices[p.key], style: 'width:120px;text-align:right' })
+        ]));
+      });
+    } else if (view === 'theme') {
+      [
+        { v: 'light', l: '☀️ Light',                    h: 'Bright background, classic look' },
+        { v: 'dark',  l: '🌙 Dark',                     h: 'Easier on the eyes at night' },
+        { v: 'auto',  l: '⚙️ Auto · match phone',        h: 'Switches automatically with system' }
+      ].forEach(opt => {
+        const selected = pending.theme === opt.v;
+        body.appendChild(el('button', {
+          type: 'button',
+          class: 'sett-radio-row' + (selected ? ' selected' : ''),
+          onclick: () => { pending.theme = opt.v; setTheme(opt.v); render(); }
+        }, [
+          el('span', { class: 'sett-radio-text' }, [
+            el('span', { class: 'sett-radio-title' }, opt.l),
+            el('span', { class: 'sett-radio-sub' }, opt.h)
+          ]),
+          el('span', { class: 'sett-radio-tick' }, selected ? '✓' : '')
+        ]));
+      });
+    } else if (view === 'lang') {
+      [
+        { v: 'en', l: 'English' },
+        { v: 'hi', l: 'हिन्दी (Hindi)' },
+        { v: 'mr', l: 'मराठी (Marathi)' }
+      ].forEach(opt => {
+        const selected = pending.lang === opt.v;
+        body.appendChild(el('button', {
+          type: 'button',
+          class: 'sett-radio-row' + (selected ? ' selected' : ''),
+          onclick: () => { pending.lang = opt.v; render(); }
+        }, [
+          el('span', { class: 'sett-radio-text' }, [
+            el('span', { class: 'sett-radio-title' }, opt.l)
+          ]),
+          el('span', { class: 'sett-radio-tick' }, selected ? '✓' : '')
+        ]));
+      });
+    }
+    wrap.appendChild(body);
+
+    wrap.appendChild(el('button', {
+      class: 'btn btn-primary btn-block', style: 'margin-top:16px',
+      onclick: doSave
+    }, 'Save changes'));
+  }
+
+  render();
+  openModal('Settings', wrap);
 }
 
 function adminGrantSlots(ownerId) {
@@ -5487,6 +5617,7 @@ function viewOwnerLocked() {
 /* ─── Boot ─────────────────────────────────────────────────── */
 // Fast path: render from cache immediately
 Store.loadFromCache();
+applyTheme(Store.data?.theme || 'auto');
 const session = restoreSession();
 if (session) {
   App.user = session;
