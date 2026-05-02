@@ -124,6 +124,8 @@ const Store = {
         users: (users.data || []).map(u => ({
           id: u.id, mobile: u.mobile, name: u.name, role: u.role,
           address: u.address || '', dailyMl: u.dailyMl, plan: u.plan,
+          frequency: u.frequency || 'daily',
+          created_at: u.created_at || null,
           assignedBoyId: u.assignedBoyId, photo: u.photo || null,
           password_hash: u.password_hash || null,
           ownerId: u.ownerId || null,
@@ -256,6 +258,7 @@ const Store = {
     if (d.users.length) tasks.push(sb.from('users').upsert(d.users.map(u => ({
       id: u.id, mobile: u.mobile, name: u.name, role: u.role,
       address: u.address || null, dailyMl: u.dailyMl, plan: u.plan,
+      frequency: u.frequency || (u.role === 'customer' ? 'daily' : null),
       assignedBoyId: u.assignedBoyId || null, photo: u.photo || null,
       password_hash: u.password_hash || null,
       ownerId: u.ownerId || null,
@@ -820,6 +823,35 @@ function isPaused(customerId, date) {
   return Store.data.pauses.some(p =>
     p.customerId === customerId && date >= p.from && date <= p.to
   );
+}
+
+// Delivery frequency: daily | alternate | weekly | monthly. Anchor is the customer's created_at.
+// Customers added before this feature default to 'daily' (every day) — backwards compatible.
+function isDeliveryDue(customer, dateStr) {
+  const freq = customer.frequency || 'daily';
+  if (freq === 'daily') return true;
+  const anchor = (customer.created_at || '').slice(0, 10);
+  if (!anchor || dateStr < anchor) return freq === 'daily';
+  const days = Math.round((new Date(dateStr + 'T00:00:00') - new Date(anchor + 'T00:00:00')) / 86400000);
+  if (freq === 'alternate') return days % 2 === 0;
+  if (freq === 'weekly') return days % 7 === 0;
+  if (freq === 'monthly') {
+    const a = new Date(anchor + 'T00:00:00');
+    const t = new Date(dateStr + 'T00:00:00');
+    const lastDay = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+    return t.getDate() === Math.min(a.getDate(), lastDay);
+  }
+  return true;
+}
+
+function fmtPlan(customer) {
+  const qty = fmtQty(customer.dailyMl || 0);
+  const freq = customer.frequency || 'daily';
+  if (freq === 'daily')     return qty + ' / day';
+  if (freq === 'alternate') return qty + ' / alt day';
+  if (freq === 'weekly')    return qty + ' / week';
+  if (freq === 'monthly')   return qty + ' / month';
+  return qty;
 }
 function getHoliday(date) {
   return (Store.data.holidays || []).find(h => h.date === date) || null;
@@ -2039,7 +2071,7 @@ function ownerHome() {
   const tomDate = new Date(); tomDate.setDate(tomDate.getDate() + 1);
   const tomISO = tomDate.toISOString().slice(0, 10);
   const tomHoliday = getHoliday(tomISO);
-  const tomActive = customers.filter(c => !isPaused(c.id, tomISO));
+  const tomActive = customers.filter(c => !isPaused(c.id, tomISO) && isDeliveryDue(c, tomISO));
   const tomMl = tomHoliday ? 0 : tomActive.reduce((s, c) => s + (c.dailyMl || 0), 0);
   page.appendChild(el('div', { class: 'card', style: 'margin-top:14px;cursor:pointer;background:linear-gradient(135deg,#fff,var(--primary-soft))', onclick: () => ownerProcurementDetail() }, [
     el('div', { class: 'row gap-md', style: 'align-items:center' }, [
@@ -2306,10 +2338,22 @@ function customerForm(existing) {
     el('input', { class: 'input', id: 'cf-addr', type: 'text', value: existing?.address || '' })
   ]));
   wrap.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'Daily quantity'),
-    el('select', { class: 'select', id: 'cf-qty' }, [500, 1000, 1500, 2000].map(q =>
-      el('option', { value: q, selected: existing?.dailyMl === q }, fmtQty(q) + ' / day')
+    el('label', {}, 'Quantity per delivery'),
+    el('select', { class: 'select', id: 'cf-qty' }, [250, 500, 750, 1000, 1500, 2000, 3000].map(q =>
+      el('option', { value: q, selected: existing?.dailyMl === q }, fmtQty(q))
     ))
+  ]));
+  wrap.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'Delivery frequency'),
+    el('select', { class: 'select', id: 'cf-freq' }, [
+      { v: 'daily',     l: 'Daily (every day)' },
+      { v: 'alternate', l: 'Alternate days (every 2 days)' },
+      { v: 'weekly',    l: 'Weekly (once a week)' },
+      { v: 'monthly',   l: 'Monthly (once a month)' }
+    ].map(o => el('option', {
+      value: o.v,
+      selected: (existing?.frequency || 'daily') === o.v
+    }, o.l)))
   ]));
   wrap.appendChild(el('button', { class: 'btn btn-primary btn-block', onclick: () => save() }, isEdit ? 'Save changes' : 'Add customer'));
   if (isEdit) {
@@ -2363,19 +2407,24 @@ function customerForm(existing) {
     const mobile = document.getElementById('cf-mobile').value.replace(/\D/g, '');
     const addr = document.getElementById('cf-addr').value.trim();
     const qty = +document.getElementById('cf-qty').value;
+    const freq = document.getElementById('cf-freq').value || 'daily';
     if (!name) return toast('Enter name', 'error');
     if (mobile.length !== 10) return toast('Enter 10-digit mobile', 'error');
     // Mobile must be globally unique (one customer record per phone across all dairies)
     const conflict = Store.data.users.find(u => u.mobile === mobile && u.id !== existing?.id);
     if (conflict) return toast('That mobile is already used by another account', 'error');
+    const planLabel = ({ daily: 'Daily', alternate: 'Alternate', weekly: 'Weekly', monthly: 'Monthly' })[freq] + ' ' + fmtQty(qty);
     if (existing) {
-      Object.assign(existing, { name, mobile, address: addr, dailyMl: qty, plan: 'Daily ' + fmtQty(qty), photo: photoData || null });
+      Object.assign(existing, { name, mobile, address: addr, dailyMl: qty, frequency: freq, plan: planLabel, photo: photoData || null });
     } else {
-      // Stamp ownerId so the new customer belongs to the current dairy
+      // Stamp ownerId so the new customer belongs to the current dairy.
+      // created_at is the anchor for non-daily frequency calculations — set locally so isDeliveryDue
+      // works before the next Supabase round-trip.
       const ownerId = App.user && App.user.role === 'owner' ? App.user.id : null;
       Store.data.users.push({
-        id: uid(), name, mobile, address: addr, dailyMl: qty, plan: 'Daily ' + fmtQty(qty),
-        role: 'customer', photo: photoData || null, ownerId
+        id: uid(), name, mobile, address: addr, dailyMl: qty, frequency: freq, plan: planLabel,
+        role: 'customer', photo: photoData || null, ownerId,
+        created_at: new Date().toISOString()
       });
     }
     Store.save();
@@ -2525,6 +2574,8 @@ function todayView({ role, rerender }) {
   if (role === 'delivery_boy') {
     customers = customers.filter(c => c.assignedBoyId === App.user.id);
   }
+  // Frequency filter: only show customers whose delivery is due today (daily customers always pass)
+  customers = customers.filter(c => isDeliveryDue(c, today));
 
   // Compute status for each customer
   const withStatus = customers.map(c => {
