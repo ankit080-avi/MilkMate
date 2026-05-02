@@ -2122,7 +2122,30 @@ function renewalPlanCard(p) {
   return card;
 }
 
-// Plans modal — owner picks a plan and pays admin (UPI deep-link if set, else WhatsApp).
+// Render plan picker (dropdown) + single re-rendering card. Returns the wrapper element.
+// Used by both openRenewModal and viewOwnerLocked.
+function buildPlanPicker(host, plans) {
+  let selectedKey = plans[0].key;
+  host.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'Plan'),
+    el('select', {
+      class: 'select', id: 'renew-plan-select',
+      onchange: (e) => { selectedKey = e.target.value; renderCard(); }
+    }, plans.map(p => el('option', { value: p.key },
+      p.name + ' · ₹' + p.price + ' · ' + p.duration_days + ' days'
+    )))
+  ]));
+  const cardHost = el('div', {});
+  host.appendChild(cardHost);
+  const renderCard = () => {
+    clear(cardHost);
+    const plan = plans.find(p => p.key === selectedKey);
+    if (plan) cardHost.appendChild(renewalPlanCard(plan));
+  };
+  renderCard();
+}
+
+// Plans modal — owner picks a plan from a dropdown, the card below shows price + pay actions.
 function openRenewModal() {
   const wrap = el('div', {});
   const exp = ownerExpiryInfo(App.user);
@@ -2132,11 +2155,12 @@ function openRenewModal() {
     (adminUpi?.upiId
       ? 'Pick a plan and pay admin via UPI. After payment, message them so they mark your renewal complete.'
       : 'Pick a plan and message admin via WhatsApp to pay.')));
-  const plans = getPlans().filter(p => p.active !== false);
+  const plans = getPlans().filter(p => p.active !== false)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   if (plans.length === 0) {
     wrap.appendChild(el('div', { class: 'card text-muted' }, 'No plans available — please contact admin.'));
   } else {
-    plans.forEach(p => wrap.appendChild(renewalPlanCard(p)));
+    buildPlanPicker(wrap, plans);
   }
   wrap.appendChild(el('div', { class: 'text-muted', style: 'font-size:11px;margin-top:14px;text-align:center' },
     'After payment, admin will mark your account as paid and you can resume.'));
@@ -5436,8 +5460,13 @@ function viewOwnerLocked() {
     el('div', { style: 'font-size:13px;margin-top:14px;opacity:.9' }, 'Pick a plan below to renew now.')
   ]));
 
-  const plans = getPlans().filter(p => p.active !== false);
-  plans.forEach(p => page.appendChild(renewalPlanCard(p)));
+  const plans = getPlans().filter(p => p.active !== false)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  if (plans.length === 0) {
+    page.appendChild(el('div', { class: 'card text-muted', style: 'margin-top:12px' }, 'No plans available — please contact admin.'));
+  } else {
+    buildPlanPicker(page, plans);
+  }
 
   page.appendChild(el('button', {
     class: 'btn btn-ghost btn-block', style: 'margin-top:18px',
