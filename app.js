@@ -1019,17 +1019,39 @@ function toast(msg, kind = '') {
   setTimeout(() => t.remove(), 2500);
 }
 
+// Stack of "back" handlers so swipe-back / browser-back / Escape go back through modal
+// layers and settings subpages instead of exiting the app.
+const _popHandlers = [];
+function pushBackHandler(handler) {
+  history.pushState({ kind: 'mm', depth: _popHandlers.length + 1 }, '');
+  _popHandlers.push(handler);
+}
+function popBack() {
+  // Programmatic back — triggers the popstate listener which runs the handler.
+  if (_popHandlers.length > 0) history.back();
+}
+window.addEventListener('popstate', () => {
+  const handler = _popHandlers.pop();
+  if (handler) {
+    try { handler(); } catch (e) { console.warn('back handler failed', e); }
+  }
+});
+
 function openModal(title, contentNode) {
   clear($modalBody);
   if (title) $modalBody.appendChild(el('h2', {}, title));
   $modalBody.appendChild(contentNode);
   $modal.hidden = false;
   document.body.style.overflow = 'hidden';
+  pushBackHandler(() => {
+    $modal.hidden = true;
+    document.body.style.overflow = '';
+    clear($modalBody);
+  });
 }
 function closeModal() {
-  $modal.hidden = true;
-  document.body.style.overflow = '';
-  clear($modalBody);
+  if ($modal.hidden) return;
+  popBack();
 }
 $modal.addEventListener('click', (e) => {
   if (e.target.dataset.close !== undefined) closeModal();
@@ -1790,7 +1812,12 @@ function adminSettingsModal() {
       sections.forEach(sec => {
         list.appendChild(el('button', {
           type: 'button', class: 'sett-row',
-          onclick: () => { view = sec.key; render(); }
+          onclick: () => {
+            // Register a back-handler so swipe-back goes from subpage → list (not closing modal)
+            pushBackHandler(() => { view = 'list'; render(); });
+            view = sec.key;
+            render();
+          }
         }, [
           el('span', { class: 'sett-row-icon' }, sec.icon),
           el('span', { class: 'sett-row-body' }, [
@@ -1813,7 +1840,7 @@ function adminSettingsModal() {
     wrap.appendChild(el('div', { class: 'sett-subpage-head' }, [
       el('button', {
         type: 'button', class: 'sett-back-btn',
-        onclick: () => { view = 'list'; render(); },
+        onclick: () => popBack(),
         'aria-label': 'Back'
       }, '←'),
       el('span', { class: 'sett-subpage-title' }, sec.icon + '  ' + sec.title)
@@ -3570,225 +3597,332 @@ function uniqueProductKey(base) {
   return base + '_' + i;
 }
 
-function ownerSettings() {
+// Module-level section state — preserved across internal re-renders (after add/delete etc.)
+let _ownerSettingsSection = 'list';
+
+function ownerSettings(target) {
+  if (target !== undefined) {
+    // Entering a subpage from the list → register a back-handler so swipe-back returns to list
+    if (target !== 'list' && _ownerSettingsSection === 'list') {
+      pushBackHandler(() => {
+        _ownerSettingsSection = 'list';
+        if (App.user && App.user.role === 'owner') ownerSettings();
+      });
+    }
+    _ownerSettingsSection = target;
+  }
   document.body.classList.add('no-tabs');
   $tabbar.hidden = true;
   $waBtn.hidden = true;
   clear($view);
-  const back = () => { document.body.classList.remove('no-tabs'); $tabbar.hidden = false; viewOwner(); };
-  $view.appendChild(topbar({ title: 'Settings', subtitle: 'Products & business', back }));
 
-  const page = el('div', { class: 'page' });
-  const s = Store.data.settings;
-
-  // My profile card
-  page.appendChild(el('div', { class: 'section-head' }, [el('h2', {}, 'My profile')]));
-  const me = App.user;
-  const myCard = el('div', { class: 'card', style: 'display:flex;align-items:center;gap:14px' });
-  const myAvatarWrap = el('div', {});
-  const renderMyAvatar = () => {
-    myAvatarWrap.innerHTML = '';
-    if (me.photo) {
-      myAvatarWrap.appendChild(el('div', {
-        class: 'avatar-photo is-tappable',
-        style: 'width:60px;height:60px;border-radius:50%;background-image:url(' + me.photo + ');background-size:cover;background-position:center;cursor:zoom-in',
-        onclick: () => openPhotoLightbox(me.photo, me.name),
-        role: 'button', 'aria-label': 'View my photo'
-      }));
-    } else {
-      myAvatarWrap.appendChild(el('div', { style: 'width:60px;height:60px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-family:var(--font-head);font-weight:800;font-size:24px' }, (me.name || '?')[0].toUpperCase()));
-    }
+  const goBackToOwner = () => {
+    document.body.classList.remove('no-tabs');
+    $tabbar.hidden = false;
+    _ownerSettingsSection = 'list';
+    viewOwner();
   };
-  renderMyAvatar();
-  myCard.appendChild(myAvatarWrap);
-  myCard.appendChild(el('div', { style: 'flex:1' }, [
-    el('div', { style: 'font-weight:700;font-size:15px' }, me.name),
-    el('div', { class: 'text-muted', style: 'font-size:13px' }, me.role === 'owner' ? 'Owner' : me.role === 'delivery_boy' ? 'Delivery Boy' : 'Customer'),
-    el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:2px' }, '+91 ' + me.mobile)
-  ]));
-  myCard.appendChild(el('button', {
-    class: 'btn btn-sm btn-ghost',
-    onclick: async () => {
-      const pic = await capturePhoto();
-      if (pic) {
-        me.photo = pic;
-        Store.save();
-        renderMyAvatar();
-        toast('Profile photo updated', 'success');
-      }
-    }
-  }, me.photo ? '✏️' : '📷'));
-  page.appendChild(myCard);
-  if (me.photo) {
-    page.appendChild(el('button', {
-      class: 'link-btn', style: 'display:block;margin:6px 0 14px;color:var(--danger)',
-      onclick: () => {
-        me.photo = null;
-        Store.save();
-        renderMyAvatar();
-        toast('Photo removed');
-      }
-    }, 'Remove profile photo'));
+
+  const sections = [
+    { key: 'profile',  icon: '👤', title: 'My Profile',         subtitle: 'Photo, name, mobile' },
+    { key: 'business', icon: '🏪', title: 'Business Info',      subtitle: 'Used in bills & PDF' },
+    { key: 'pricing',  icon: '💰', title: 'Pricing & Payments', subtitle: 'Per-litre, UPI, WhatsApp' },
+    { key: 'boys',     icon: '🚴', title: 'Delivery Boys',      subtitle: 'Manage your delivery team' },
+    { key: 'holidays', icon: '🗓', title: 'Holidays',           subtitle: "Days you don't deliver" },
+    { key: 'products', icon: '🥛', title: 'Products (Extras)',  subtitle: 'Paneer, curd, ghee, etc.' },
+    { key: 'theme',    icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
+    { key: 'lang',     icon: '🌐', title: 'Language',           subtitle: 'English, Hindi, Marathi' }
+  ];
+  const sec = _ownerSettingsSection === 'list' ? null : sections.find(x => x.key === _ownerSettingsSection);
+
+  $view.appendChild(topbar({
+    title: sec ? sec.title : 'Settings',
+    subtitle: sec ? sec.subtitle : null,
+    back: sec ? () => popBack() : goBackToOwner
+  }));
+
+  const page = el('div', { class: 'page settings-screen' });
+
+  // ── Settings list (root view) ──
+  if (_ownerSettingsSection === 'list') {
+    const list = el('div', { class: 'sett-list' });
+    sections.forEach(secMeta => {
+      list.appendChild(el('button', {
+        type: 'button', class: 'sett-row',
+        onclick: () => ownerSettings(secMeta.key)
+      }, [
+        el('span', { class: 'sett-row-icon' }, secMeta.icon),
+        el('span', { class: 'sett-row-body' }, [
+          el('span', { class: 'sett-row-title' }, secMeta.title),
+          el('span', { class: 'sett-row-sub' }, secMeta.subtitle)
+        ]),
+        el('span', { class: 'sett-row-arrow' }, '›')
+      ]));
+    });
+    page.appendChild(list);
+    $view.appendChild(page);
+    return;
   }
 
-  // Business info card (used in PDF reports)
-  page.appendChild(el('div', { class: 'section-head' }, [el('h2', {}, 'Business info (for bills & PDF)')]));
-  const biz = el('div', { class: 'card' });
-  biz.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'Business / Dairy name'),
-    el('input', { class: 'input', id: 'st-bname', type: 'text', value: s.businessName || '', placeholder: 'e.g. Sharma Dairy' })
-  ]));
-  biz.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'Address'),
-    el('textarea', { class: 'input', id: 'st-baddr', rows: 2, placeholder: 'Shop address (will appear on bills)' }, s.businessAddress || '')
-  ]));
-  biz.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'Business phone'),
-    el('input', { class: 'input', id: 'st-bphone', type: 'tel', value: s.businessPhone || '', placeholder: '+91 ...' })
-  ]));
-  page.appendChild(biz);
+  const s = Store.data.settings;
+  const me = App.user;
 
-  // General settings card
-  page.appendChild(el('div', { class: 'section-head', style: 'margin-top:14px' }, [el('h2', {}, 'Pricing & payments')]));
-  const gen = el('div', { class: 'card' });
-  gen.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'Price per litre (₹)'),
-    el('input', { class: 'input', id: 'st-price', type: 'number', min: 1, value: s.pricePerLitre })
-  ]));
-  gen.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'UPI ID'),
-    el('input', { class: 'input', id: 'st-upi', type: 'text', value: s.upiId || '' })
-  ]));
-  gen.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'UPI display name'),
-    el('input', { class: 'input', id: 'st-upiname', type: 'text', value: s.upiName || '' })
-  ]));
-  gen.appendChild(el('div', { class: 'field' }, [
-    el('label', {}, 'Owner WhatsApp (with country code)'),
-    el('input', { class: 'input', id: 'st-wa', type: 'tel', inputmode: 'numeric', value: s.ownerWhatsApp || '' })
-  ]));
-  gen.appendChild(el('button', {
-    class: 'btn btn-primary btn-block',
-    onclick: () => {
-      const price = +document.getElementById('st-price').value;
-      const upi = document.getElementById('st-upi').value.trim();
-      const upiName = document.getElementById('st-upiname').value.trim();
-      const wa = document.getElementById('st-wa').value.replace(/\D/g, '');
-      const bname = document.getElementById('st-bname').value.trim();
-      const baddr = document.getElementById('st-baddr').value.trim();
-      const bphone = document.getElementById('st-bphone').value.trim();
-      if (!price || price <= 0) return toast('Enter valid price', 'error');
-      s.pricePerLitre = price;
-      s.upiId = upi;
-      s.upiName = upiName;
-      s.ownerWhatsApp = wa;
-      s.businessName = bname;
-      s.businessAddress = baddr;
-      s.businessPhone = bphone;
-      Store.save();
-      toast('Saved', 'success');
+  // ─── Profile ─────────────────────────────────────────────
+  if (_ownerSettingsSection === 'profile') {
+    const myCard = el('div', { class: 'card', style: 'display:flex;align-items:center;gap:14px' });
+    const myAvatarWrap = el('div', {});
+    const renderMyAvatar = () => {
+      myAvatarWrap.innerHTML = '';
+      if (me.photo) {
+        myAvatarWrap.appendChild(el('div', {
+          class: 'avatar-photo is-tappable',
+          style: 'width:60px;height:60px;border-radius:50%;background-image:url(' + me.photo + ');background-size:cover;background-position:center;cursor:zoom-in',
+          onclick: () => openPhotoLightbox(me.photo, me.name),
+          role: 'button', 'aria-label': 'View my photo'
+        }));
+      } else {
+        myAvatarWrap.appendChild(el('div', { style: 'width:60px;height:60px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-family:var(--font-head);font-weight:800;font-size:24px' }, (me.name || '?')[0].toUpperCase()));
+      }
+    };
+    renderMyAvatar();
+    myCard.appendChild(myAvatarWrap);
+    myCard.appendChild(el('div', { style: 'flex:1' }, [
+      el('div', { style: 'font-weight:700;font-size:15px' }, me.name),
+      el('div', { class: 'text-muted', style: 'font-size:13px' }, me.role === 'owner' ? 'Owner' : me.role === 'delivery_boy' ? 'Delivery Boy' : 'Customer'),
+      el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:2px' }, '+91 ' + me.mobile)
+    ]));
+    myCard.appendChild(el('button', {
+      class: 'btn btn-sm btn-ghost',
+      onclick: async () => {
+        const pic = await capturePhoto();
+        if (pic) {
+          me.photo = pic;
+          Store.save();
+          renderMyAvatar();
+          toast('Profile photo updated', 'success');
+        }
+      }
+    }, me.photo ? '✏️' : '📷'));
+    page.appendChild(myCard);
+    if (me.photo) {
+      page.appendChild(el('button', {
+        class: 'link-btn', style: 'display:block;margin:6px 0 14px;color:var(--danger)',
+        onclick: () => {
+          me.photo = null;
+          Store.save();
+          renderMyAvatar();
+          toast('Photo removed');
+        }
+      }, 'Remove profile photo'));
     }
-  }, 'Save settings'));
-  page.appendChild(gen);
+  }
 
-  // Delivery boys section
-  page.appendChild(el('div', { class: 'section-head', style: 'margin-top:18px' }, [
-    el('h2', {}, 'Delivery boys'),
-    el('button', { class: 'link-btn', onclick: () => boyForm(null) }, '+ Add')
-  ]));
-  const myBoys = Store.data.users.filter(u => u.role === 'delivery_boy' && u.ownerId === App.user.id);
-  if (myBoys.length === 0) {
-    page.appendChild(el('div', { class: 'card text-muted', style: 'font-size:13px' },
-      'No delivery boys yet. Add one to assign customers and track their routes.'));
-  } else {
-    const list = el('div', { class: 'list' });
-    myBoys.forEach(b => {
-      const assignedCount = Store.data.users.filter(u => u.role === 'customer' && u.ownerId === App.user.id && u.assignedBoyId === b.id).length;
-      list.appendChild(el('div', { class: 'list-item is-clickable', onclick: () => boyForm(b) }, [
-        avatarFor(b),
+  // ─── Business info ───────────────────────────────────────
+  else if (_ownerSettingsSection === 'business') {
+    const biz = el('div', { class: 'card' });
+    biz.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Business / Dairy name'),
+      el('input', { class: 'input', id: 'st-bname', type: 'text', value: s.businessName || '', placeholder: 'e.g. Sharma Dairy' })
+    ]));
+    biz.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Address'),
+      el('textarea', { class: 'input', id: 'st-baddr', rows: 2, placeholder: 'Shop address (will appear on bills)' }, s.businessAddress || '')
+    ]));
+    biz.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Business phone'),
+      el('input', { class: 'input', id: 'st-bphone', type: 'tel', value: s.businessPhone || '', placeholder: '+91 ...' })
+    ]));
+    biz.appendChild(el('button', {
+      class: 'btn btn-primary btn-block',
+      onclick: () => {
+        s.businessName = document.getElementById('st-bname').value.trim();
+        s.businessAddress = document.getElementById('st-baddr').value.trim();
+        s.businessPhone = document.getElementById('st-bphone').value.trim();
+        Store.save();
+        toast('Saved', 'success');
+      }
+    }, 'Save'));
+    page.appendChild(biz);
+  }
+
+  // ─── Pricing & payments ──────────────────────────────────
+  else if (_ownerSettingsSection === 'pricing') {
+    const gen = el('div', { class: 'card' });
+    gen.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Price per litre (₹)'),
+      el('input', { class: 'input', id: 'st-price', type: 'number', min: 1, value: s.pricePerLitre })
+    ]));
+    gen.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'UPI ID'),
+      el('input', { class: 'input', id: 'st-upi', type: 'text', value: s.upiId || '' })
+    ]));
+    gen.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'UPI display name'),
+      el('input', { class: 'input', id: 'st-upiname', type: 'text', value: s.upiName || '' })
+    ]));
+    gen.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Owner WhatsApp (with country code)'),
+      el('input', { class: 'input', id: 'st-wa', type: 'tel', inputmode: 'numeric', value: s.ownerWhatsApp || '' })
+    ]));
+    gen.appendChild(el('button', {
+      class: 'btn btn-primary btn-block',
+      onclick: () => {
+        const price = +document.getElementById('st-price').value;
+        if (!price || price <= 0) return toast('Enter valid price', 'error');
+        s.pricePerLitre = price;
+        s.upiId = document.getElementById('st-upi').value.trim();
+        s.upiName = document.getElementById('st-upiname').value.trim();
+        s.ownerWhatsApp = document.getElementById('st-wa').value.replace(/\D/g, '');
+        Store.save();
+        toast('Saved', 'success');
+      }
+    }, 'Save'));
+    page.appendChild(gen);
+  }
+
+  // ─── Delivery boys ───────────────────────────────────────
+  else if (_ownerSettingsSection === 'boys') {
+    page.appendChild(el('div', { class: 'section-head' }, [
+      el('h2', {}, 'Delivery boys'),
+      el('button', { class: 'link-btn', onclick: () => boyForm(null) }, '+ Add')
+    ]));
+    const myBoys = Store.data.users.filter(u => u.role === 'delivery_boy' && u.ownerId === App.user.id);
+    if (myBoys.length === 0) {
+      page.appendChild(el('div', { class: 'card text-muted', style: 'font-size:13px' },
+        'No delivery boys yet. Add one to assign customers and track their routes.'));
+    } else {
+      const list = el('div', { class: 'list' });
+      myBoys.forEach(b => {
+        const assignedCount = Store.data.users.filter(u => u.role === 'customer' && u.ownerId === App.user.id && u.assignedBoyId === b.id).length;
+        list.appendChild(el('div', { class: 'list-item is-clickable', onclick: () => boyForm(b) }, [
+          avatarFor(b),
+          el('div', { class: 'li-body' }, [
+            el('div', { class: 'li-title' }, b.name),
+            el('div', { class: 'li-sub' }, '+91 ' + b.mobile + ' · ' + assignedCount + ' assigned')
+          ]),
+          el('span', { class: 'icon', html: ICON.edit, style: 'opacity:.5' })
+        ]));
+      });
+      page.appendChild(list);
+    }
+  }
+
+  // ─── Holidays ────────────────────────────────────────────
+  else if (_ownerSettingsSection === 'holidays') {
+    page.appendChild(el('div', { class: 'section-head' }, [
+      el('h2', {}, 'Holidays'),
+      el('button', { class: 'link-btn', onclick: () => addHoliday() }, '+ Add')
+    ]));
+    const holidays = (Store.data.holidays || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+    if (holidays.length === 0) {
+      page.appendChild(el('div', { class: 'card text-muted', style: 'font-size:13px' },
+        'No holidays set. Add dates when your dairy is closed (e.g. Diwali, Independence Day).'));
+    } else {
+      const list = el('div', { class: 'list' });
+      holidays.forEach(h => {
+        list.appendChild(el('div', { class: 'list-item' }, [
+          el('div', { class: 'li-avatar', style: 'background:#FEF3C7;color:#92400E' }, '🗓'),
+          el('div', { class: 'li-body' }, [
+            el('div', { class: 'li-title' }, h.label || 'Holiday'),
+            el('div', { class: 'li-sub' }, prettyDate(h.date))
+          ]),
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            onclick: async () => {
+              if (!await confirmDialog('Remove holiday?', h.label + ' on ' + prettyDate(h.date), 'Remove')) return;
+              Store.data.holidays = Store.data.holidays.filter(x => !(x.date === h.date && x.label === h.label));
+              Store.save();
+              await Store.removeRemote('holidays', h.date, 'date');
+              ownerSettings();
+            }
+          }, 'Remove')
+        ]));
+      });
+      page.appendChild(list);
+    }
+  }
+
+  // ─── Products ────────────────────────────────────────────
+  else if (_ownerSettingsSection === 'products') {
+    page.appendChild(el('div', { class: 'section-head' }, [
+      el('h2', {}, 'Products (extras)'),
+      el('button', { class: 'link-btn', onclick: () => productForm(null) }, '+ Add')
+    ]));
+    const products = s.products;
+    const entries = Object.entries(products);
+    const active = entries.filter(([, p]) => p.active !== false);
+    const archived = entries.filter(([, p]) => p.active === false);
+    const renderRow = ([key, p]) => {
+      const stock = Number(p.stock) || 0;
+      const stockTag = p.active === false ? ' · archived'
+        : (stock <= 0 ? ' · ⚠ out of stock' : (stock <= 5 ? ' · ⚠ low: ' + stock : ' · ' + stock + ' in stock'));
+      return el('div', { class: 'list-item' + (p.active === false ? ' is-archived' : ''), onclick: () => productForm(key) }, [
+        el('div', { class: 'li-avatar' }, p.emoji || '🥛'),
         el('div', { class: 'li-body' }, [
-          el('div', { class: 'li-title' }, b.name),
-          el('div', { class: 'li-sub' }, '+91 ' + b.mobile + ' · ' + assignedCount + ' assigned')
+          el('div', { class: 'li-title' }, p.name),
+          el('div', { class: 'li-sub' }, fmtMoney(p.price) + stockTag)
         ]),
         el('span', { class: 'icon', html: ICON.edit, style: 'opacity:.5' })
+      ]);
+    };
+    if (active.length) {
+      const list = el('div', { class: 'list' });
+      active.forEach(e => list.appendChild(renderRow(e)));
+      page.appendChild(list);
+    } else {
+      page.appendChild(emptyState('🛒', 'No products', 'Add a product so customers can order extras.'));
+    }
+    if (archived.length) {
+      page.appendChild(el('div', { class: 'section-head', style: 'margin-top:14px' }, [
+        el('h2', { style: 'font-size:14px;color:var(--muted)' }, 'Archived (' + archived.length + ')')
       ]));
-    });
-    page.appendChild(list);
+      const list = el('div', { class: 'list' });
+      archived.forEach(e => list.appendChild(renderRow(e)));
+      page.appendChild(list);
+    }
   }
 
-  // Holidays section
-  page.appendChild(el('div', { class: 'section-head', style: 'margin-top:18px' }, [
-    el('h2', {}, 'Holidays'),
-    el('button', { class: 'link-btn', onclick: () => addHoliday() }, '+ Add')
-  ]));
-  const holidays = (Store.data.holidays || []).slice().sort((a, b) => a.date.localeCompare(b.date));
-  if (holidays.length === 0) {
-    page.appendChild(el('div', { class: 'card text-muted', style: 'font-size:13px' },
-      'No holidays set. Add dates when your dairy is closed (e.g. Diwali, Independence Day).'));
-  } else {
-    const list = el('div', { class: 'list' });
-    holidays.forEach(h => {
-      list.appendChild(el('div', { class: 'list-item' }, [
-        el('div', { class: 'li-avatar', style: 'background:#FEF3C7;color:#92400E' }, '🗓'),
-        el('div', { class: 'li-body' }, [
-          el('div', { class: 'li-title' }, h.label || 'Holiday'),
-          el('div', { class: 'li-sub' }, prettyDate(h.date))
+  // ─── Appearance / Theme ──────────────────────────────────
+  else if (_ownerSettingsSection === 'theme') {
+    [
+      { v: 'light', l: '☀️ Light',                    h: 'Bright background, classic look' },
+      { v: 'dark',  l: '🌙 Dark',                     h: 'Easier on the eyes at night' },
+      { v: 'auto',  l: '⚙️ Auto · match phone',        h: 'Switches automatically with system' }
+    ].forEach(opt => {
+      const selected = (Store.data.theme || 'auto') === opt.v;
+      page.appendChild(el('button', {
+        type: 'button',
+        class: 'sett-radio-row' + (selected ? ' selected' : ''),
+        onclick: () => { setTheme(opt.v); ownerSettings(); }
+      }, [
+        el('span', { class: 'sett-radio-text' }, [
+          el('span', { class: 'sett-radio-title' }, opt.l),
+          el('span', { class: 'sett-radio-sub' }, opt.h)
         ]),
-        el('button', {
-          class: 'btn btn-sm btn-ghost',
-          onclick: async () => {
-            if (!await confirmDialog('Remove holiday?', h.label + ' on ' + prettyDate(h.date), 'Remove')) return;
-            Store.data.holidays = Store.data.holidays.filter(x => !(x.date === h.date && x.label === h.label));
-            Store.save();
-            await Store.removeRemote('holidays', h.date, 'date');
-            ownerSettings();
-          }
-        }, 'Remove')
+        el('span', { class: 'sett-radio-tick' }, selected ? '✓' : '')
       ]));
     });
-    page.appendChild(list);
   }
 
-  // Products section
-  page.appendChild(el('div', { class: 'section-head', style: 'margin-top:18px' }, [
-    el('h2', {}, 'Products (extras)'),
-    el('button', { class: 'link-btn', onclick: () => productForm(null) }, '+ Add')
-  ]));
-
-  const products = s.products;
-  const entries = Object.entries(products);
-  const active = entries.filter(([, p]) => p.active !== false);
-  const archived = entries.filter(([, p]) => p.active === false);
-
-  const renderRow = ([key, p]) => {
-    const stock = Number(p.stock) || 0;
-    const stockTag = p.active === false ? ' · archived'
-      : (stock <= 0 ? ' · ⚠ out of stock' : (stock <= 5 ? ' · ⚠ low: ' + stock : ' · ' + stock + ' in stock'));
-    return el('div', { class: 'list-item' + (p.active === false ? ' is-archived' : ''), onclick: () => productForm(key) }, [
-      el('div', { class: 'li-avatar' }, p.emoji || '🥛'),
-      el('div', { class: 'li-body' }, [
-        el('div', { class: 'li-title' }, p.name),
-        el('div', { class: 'li-sub' }, fmtMoney(p.price) + stockTag)
-      ]),
-      el('span', { class: 'icon', html: ICON.edit, style: 'opacity:.5' })
-    ]);
-  };
-
-  if (active.length) {
-    const list = el('div', { class: 'list' });
-    active.forEach(e => list.appendChild(renderRow(e)));
-    page.appendChild(list);
-  } else {
-    page.appendChild(emptyState('🛒', 'No products', 'Add a product so customers can order extras.'));
-  }
-
-  if (archived.length) {
-    page.appendChild(el('div', { class: 'section-head', style: 'margin-top:14px' }, [
-      el('h2', { style: 'font-size:14px;color:var(--muted)' }, 'Archived (' + archived.length + ')')
-    ]));
-    const list = el('div', { class: 'list' });
-    archived.forEach(e => list.appendChild(renderRow(e)));
-    page.appendChild(list);
+  // ─── Language ────────────────────────────────────────────
+  else if (_ownerSettingsSection === 'lang') {
+    [
+      { v: 'en', l: 'English' },
+      { v: 'hi', l: 'हिन्दी (Hindi)' },
+      { v: 'mr', l: 'मराठी (Marathi)' }
+    ].forEach(opt => {
+      const selected = (Store.data.language || 'en') === opt.v;
+      page.appendChild(el('button', {
+        type: 'button',
+        class: 'sett-radio-row' + (selected ? ' selected' : ''),
+        onclick: () => { setLanguage(opt.v); ownerSettings(); }
+      }, [
+        el('span', { class: 'sett-radio-text' }, [
+          el('span', { class: 'sett-radio-title' }, opt.l)
+        ]),
+        el('span', { class: 'sett-radio-tick' }, selected ? '✓' : '')
+      ]));
+    });
   }
 
   $view.appendChild(page);
