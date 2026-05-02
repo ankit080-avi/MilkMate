@@ -8,6 +8,7 @@
 
 /* ─── Supabase client ─────────────────────────────────────── */
 const SUPABASE_URL = 'https://kmauurezrgovucpbkekq.supabase.co';
+   
 const SUPABASE_KEY = 'sb_publishable_a3klASpmaN__EX38mCq9Ew_l_cUpUr3';
 let sb = null;
 try {
