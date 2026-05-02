@@ -11,6 +11,8 @@ service-account*.json
 # Tooling caches (host-machine specific)
 .netlify/
 .claude/
+supabase/.temp/
+supabase/.branches/
 
 # Backup snapshots
 backup-*/
