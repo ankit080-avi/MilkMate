@@ -1094,23 +1094,67 @@ const ICON = {
 };
 function icon(name) { return el('span', { html: ICON[name] || '' }); }
 
+// Pending extras orders awaiting owner's action (for the topbar order badge).
+function pendingOrderCount(user) {
+  if (!user || !Store.data.extraOrders) return 0;
+  if (user.role === 'owner') {
+    return Store.data.extraOrders.filter(o => o.ownerId === user.id && o.status === 'pending').length;
+  }
+  if (user.role === 'customer') {
+    return Store.data.extraOrders.filter(o => o.customerId === user.id && (o.status === 'pending' || o.status === 'confirmed')).length;
+  }
+  return 0;
+}
+
+// Profile avatar shown on the left of the topbar — tappable, opens settings (owner) or no-op.
+function topbarAvatar(user) {
+  if (!user) return null;
+  const onClick = user.role === 'owner' ? () => ownerSettings('list')
+                : user.role === 'admin' ? () => adminSettingsModal()
+                : null;
+  const initial = (user.name || '?')[0].toUpperCase();
+  return el('button', {
+    class: 'topbar-avatar' + (user.photo ? ' has-photo' : ''),
+    onclick: onClick || (() => {}),
+    'aria-label': 'Profile',
+    style: user.photo ? 'background-image:url(' + user.photo + ')' : ''
+  }, user.photo ? '' : initial);
+}
+
 /* ─── Top bar builder ──────────────────────────────────────── */
 function topbar(opts = {}) {
+  // Left: back button on subviews, otherwise profile avatar (always shown when logged in)
   const left = opts.back
     ? el('button', { class: 'icon-btn', onclick: opts.back, 'aria-label': 'Back', html: ICON.back })
-    : null;
+    : (App.user ? topbarAvatar(App.user) : null);
 
-  const titleWrap = el('div', { style: 'flex:1' }, [
+  const titleWrap = el('div', { style: 'flex:1;min-width:0' }, [
     el('h1', {}, opts.title || ''),
     opts.subtitle ? el('div', { class: 'topbar-sub' }, opts.subtitle) : null
   ]);
 
   const actions = el('div', { class: 'row gap-sm' });
+
+  // Order/extras icon with count badge — owner sees pending; customer sees their active orders
+  if (opts.bell && App.user && (App.user.role === 'owner' || App.user.role === 'customer')) {
+    const cnt = pendingOrderCount(App.user);
+    const onTap = App.user.role === 'owner'
+      ? () => ownerOrdersInbox()
+      : () => { App.customerTab = 'extras'; viewCustomer(); };
+    const oWrap = el('div', { class: 'bell-wrap' }, [
+      el('button', { class: 'icon-btn', onclick: onTap, 'aria-label': 'Orders', html: ICON.bag })
+    ]);
+    if (cnt > 0) oWrap.appendChild(el('span', { class: 'bell-badge' }, cnt > 99 ? '99+' : String(cnt)));
+    actions.appendChild(oWrap);
+  }
+
+  // Bell with count badge
   if (opts.bell && App.user) {
+    const cnt = unreadCount(App.user.id);
     const wrap = el('div', { class: 'bell-wrap' }, [
       el('button', { class: 'icon-btn', onclick: () => goNotifications(), 'aria-label': 'Notifications', html: ICON.bell })
     ]);
-    if (unreadCount(App.user.id) > 0) wrap.appendChild(el('span', { class: 'bell-dot' }));
+    if (cnt > 0) wrap.appendChild(el('span', { class: 'bell-badge' }, cnt > 99 ? '99+' : String(cnt)));
     actions.appendChild(wrap);
   }
   if (opts.logout) {
