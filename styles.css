@@ -781,6 +781,7 @@ body.no-tabs .wa-fab { bottom: calc(var(--safe-bottom) + 16px); }
   border-radius: 50%; display: inline-block;
 }
 .presence-inline { color: var(--success); font-weight: 600; font-size: 12px; }
+.presence-inline.is-offline { display: none; }
 
 /* Subscription banner on owner home — color reflects state */
 .sub-card { color: #fff; box-shadow: var(--shadow-sm); }

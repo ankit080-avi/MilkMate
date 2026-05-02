@@ -855,6 +855,11 @@ window.addEventListener('mm-presence-changed', () => {
     const online = Store.Presence && Store.Presence.has(uid_);
     node.classList.toggle('is-offline', !online);
   });
+  document.querySelectorAll('.presence-inline[data-user-id]').forEach(node => {
+    const uid_ = node.getAttribute('data-user-id');
+    const online = Store.Presence && Store.Presence.has(uid_);
+    node.classList.toggle('is-offline', !online);
+  });
 });
 function restoreSession() {
   const id = localStorage.getItem('milkmate-session');
@@ -2616,7 +2621,7 @@ function ownerCustomers() {
       const item = el('button', { class: 'list-item', style: 'text-align:left;border:1px solid var(--line);background:var(--surface);width:100%', onclick: () => customerDetail(c.id) }, [
         avatarWrap,
         el('div', { class: 'li-body' }, [
-          el('div', { class: 'li-title' }, [c.name, isOnline ? el('span', { class: 'presence-inline' }, ' · online') : null]),
+          el('div', { class: 'li-title' }, [c.name, el('span', { class: 'presence-inline' + (isOnline ? '' : ' is-offline'), 'data-user-id': c.id }, ' · online')]),
           el('div', { class: 'li-sub' }, '+91 ' + c.mobile + ' · ' + fmtQty(c.dailyMl))
         ]),
         el('div', { class: 'li-aside', style: 'text-align:right' }, [
