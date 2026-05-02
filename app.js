@@ -2087,31 +2087,37 @@ function renewalPlanCard(p) {
       class: 'btn btn-primary btn-block', style: 'margin-top:10px',
       href: upiUrl
     }, '💳 Pay ₹' + p.price + ' via UPI'));
-    // QR toggle for paying from another device
-    const qrHost = el('div', { style: 'margin-top:8px;text-align:center;display:none' });
-    const qrBtn = el('button', {
-      class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-top:6px;font-size:12px;width:100%',
-      onclick: () => {
-        if (qrHost.style.display === 'none') {
-          if (!qrHost.firstChild) {
-            const img = makeQRImage(upiUrl);
-            if (img) {
-              img.style.maxWidth = '180px';
-              qrHost.appendChild(img);
-              qrHost.appendChild(el('div', { class: 'text-muted', style: 'font-size:11px;margin-top:4px' },
-                'Scan with any UPI app · ₹' + p.price + ' to ' + (adminUpi?.upiName || 'admin')));
-            }
-          }
-          qrHost.style.display = 'block';
-          qrBtn.textContent = 'Hide UPI QR';
-        } else {
-          qrHost.style.display = 'none';
-          qrBtn.textContent = 'Show UPI QR';
-        }
+    // QR + admin UPI details shown by default, so owner can scan from another phone
+    // or copy the UPI ID even if the deep link doesn't open a UPI app on this device.
+    const qrSection = el('div', {
+      style: 'margin-top:12px;text-align:center;padding:14px;background:#FAFAF7;border:1px dashed var(--line);border-radius:10px'
+    });
+    const img = makeQRImage(upiUrl);
+    if (img) {
+      img.style.maxWidth = '180px';
+      img.style.display = 'block';
+      img.style.margin = '0 auto';
+      img.alt = 'UPI QR for ₹' + p.price;
+      qrSection.appendChild(img);
+    } else {
+      qrSection.appendChild(el('div', { class: 'text-muted', style: 'font-size:12px' }, 'QR unavailable on this device'));
+    }
+    qrSection.appendChild(el('div', { class: 'text-muted', style: 'font-size:11px;margin-top:8px' }, 'Scan with any UPI app to pay ₹' + p.price));
+    qrSection.appendChild(el('div', { style: 'font-family:var(--font-mono);font-size:14px;font-weight:700;margin-top:8px;color:var(--primary-deep)' }, adminUpi.upiId));
+    if (adminUpi.upiName) {
+      qrSection.appendChild(el('div', { class: 'text-muted', style: 'font-size:11px' }, adminUpi.upiName));
+    }
+    // Copy UPI ID button (handy when QR scan fails)
+    qrSection.appendChild(el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-top:8px;font-size:12px',
+      onclick: async () => {
+        try {
+          await navigator.clipboard.writeText(adminUpi.upiId);
+          toast('UPI ID copied', 'success');
+        } catch (e) { toast(adminUpi.upiId, 'success'); }
       }
-    }, 'Show UPI QR');
-    card.appendChild(qrBtn);
-    card.appendChild(qrHost);
+    }, '📋 Copy UPI ID'));
+    card.appendChild(qrSection);
   }
   card.appendChild(el('a', {
     class: 'btn btn-ghost btn-block', style: 'margin-top:8px',
