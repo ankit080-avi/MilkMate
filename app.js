@@ -359,6 +359,7 @@ const Store = {
     if (!sb || this._channel) return;
     this._channel = sb.channel('mm-realtime')
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+      if (payload.table === 'notifications') return; // ← ADD KARO
         clearTimeout(this._refetchTimer);
         this._refetchTimer = setTimeout(() => {
           this.loadFromRemote().then(() => {
@@ -1089,17 +1090,28 @@ function notify(userId, type, title, body) {
     date: new Date().toISOString(), read: false
   });
   Store.save();
-  // Show in-app popup if recipient is currently logged in
+  
   if (App.user && App.user.id === userId) {
     showNotificationPopup(type, title, body);
+    // Browser notification HATAO yahan se — popup kaafi hai
+    return; // ← YEH ADD KARO
   }
-  // Browser notification (if user has granted permission)
+  
+  // Sirf tab browser notification dikhao jab user active nahi
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    try { new Notification(title, { body, icon: 'icon-192.png', tag: type + '-' + uid() }); } catch (e) {}
+    try { new Notification(title, { body, icon: 'icon-192.png', tag: type + '-' + userId }); } 
+    catch (e) {}
   }
 }
-
 function showNotificationPopup(type, title, body) {
+  // ── DEDUP GUARD ──
+  const dedupKey = type + '|' + title + '|' + body;
+  if (showNotificationPopup._lastKey === dedupKey && 
+      Date.now() - showNotificationPopup._lastTime < 2000) return;
+  showNotificationPopup._lastKey = dedupKey;
+  showNotificationPopup._lastTime = Date.now();
+  // ────────────────
+   
   const host = document.getElementById('popupHost') || (() => {
     const h = el('div', { id: 'popupHost', class: 'popup-host' });
     document.body.appendChild(h);
