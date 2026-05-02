@@ -5,7 +5,7 @@ A **multi-tenant SaaS PWA** for dairy operations.
 - The **software admin (you)** sells the app to dairy shopkeepers ("owners").
 - Each owner runs their own dairy: customers, delivery boys, products, prices, UPI — all isolated per owner.
 - Owners pay you a monthly / quarterly / yearly subscription. Admin records payments manually.
-- Backed by **Supabase** (Postgres + Realtime), hosted on **GitHub Pages**, wrapped as an **Android APK**.
+- Backed by **Supabase** (Postgres + Realtime + Edge Functions), hosted on **GitHub Pages**, wrapped as an **Android APK** with **FCM push notifications**.
 
 > **IMPORTANT:** This file contains context to resume work in a fresh Claude session. The repo is **private** — do not make it public without first stripping mobile numbers / demo logins below.
 
@@ -23,6 +23,10 @@ A **multi-tenant SaaS PWA** for dairy operations.
 | **Supabase API URL** | `https://kmauurezrgovucpbkekq.supabase.co` |
 | **Supabase Table Editor** | https://supabase.com/dashboard/project/kmauurezrgovucpbkekq/editor |
 | **Supabase SQL Editor** | https://supabase.com/dashboard/project/kmauurezrgovucpbkekq/sql/new |
+| **Edge Function (send-push)** | https://supabase.com/dashboard/project/kmauurezrgovucpbkekq/functions/send-push |
+| **Edge Function logs** | https://supabase.com/dashboard/project/kmauurezrgovucpbkekq/functions/send-push/logs |
+| **Database Webhooks** | https://supabase.com/dashboard/project/kmauurezrgovucpbkekq/integrations/webhooks |
+| **Firebase project** | https://console.firebase.google.com/u/0/project/milkmate-d77d6/overview |
 | **Local working folder** | `D:\milkmate` |
 | **Latest backup zip** | `D:\milkmate-backup-YYYYMMDD-HHMMSS.zip` |
 
@@ -38,6 +42,16 @@ A **multi-tenant SaaS PWA** for dairy operations.
 - **Account:** `ankit080-avi`
 - **Repo:** `ankit080-avi/MilkMate` (private)
 - Push to `main` → GitHub Actions deploys to Pages automatically.
+
+### Firebase (FCM)
+- **Project ID:** `milkmate-d77d6`
+- **Project number / messagingSenderId:** `719675567152`
+- **Web config** baked into `firebase-config.js` (public values).
+- **Android app** package: `com.milkmate.app` — config in `capacitor-app/android/app/google-services.json`.
+- **VAPID web push key:** in `firebase-config.js` (public).
+- **Service account JSON:** stored as Supabase Edge Function secret `FIREBASE_SERVICE_ACCOUNT` only — never in repo. The `*firebase-adminsdk*.json` filename pattern is in `.gitignore`.
+  - Regenerate at: https://console.firebase.google.com/u/0/project/milkmate-d77d6/settings/serviceaccounts/adminsdk
+  - **CRITICAL:** before setting as Supabase secret, MINIFY the JSON (multi-line bash arg passing truncates to `{`). See command in the Push notifications section below.
 
 ---
 
@@ -415,7 +429,9 @@ D:\milkmate\
 
 ---
 
-## Push notifications (FCM) — architecture
+## Push notifications (FCM) — LIVE ✅
+
+Status: end-to-end verified — Sagar (test owner, id `giv7grr0`) received pushes on a locked Android phone after a customer placed an order on a different phone.
 
 ```
 [Customer order]                                  [Owner phone — locked / app closed]
@@ -426,67 +442,77 @@ notifications row INSERT                                       │
        ├─ Supabase Realtime ──── owner if foreground only      │
        │                                                       │
        └─ Database Webhook ──▶  Edge Function `send-push` ─────┘
-                                  │
-                                  ├─ Look up FCM tokens in `device_tokens` for userId
-                                  ├─ Mint Google OAuth JWT (RS256) using
-                                  │  FIREBASE_SERVICE_ACCOUNT secret
-                                  └─ POST FCM HTTP v1 → drop dead tokens (404/410)
+          (notifications_send_push)   │
+                                      ├─ Look up FCM tokens in `device_tokens` for userId
+                                      ├─ Mint Google OAuth JWT (RS256) using
+                                      │  FIREBASE_SERVICE_ACCOUNT secret
+                                      └─ POST FCM HTTP v1 → drop dead tokens (404/410)
 ```
-
-### Firebase project — `milkmate-d77d6`
-- Project console: https://console.firebase.google.com/u/0/project/milkmate-d77d6/overview
-- Web app config baked into `firebase-config.js` (public — apiKey, appId, etc.)
-- VAPID public key for Web Push lives in same file
-- Android app: package `com.milkmate.app`, config in `capacitor-app/android/app/google-services.json`
-
-### Secrets (Supabase Dashboard → Project Settings → Edge Functions)
-| Secret | Source | What it's for |
-|---|---|---|
-| `FIREBASE_SERVICE_ACCOUNT` | Firebase console → Service accounts → "Generate new private key" — **MINIFY the JSON to single line** before setting (multi-line bash arg passing breaks it) | Edge Function signs Google OAuth JWT to call FCM |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | auto-injected by Supabase | Edge Function reads `device_tokens` |
-
-### Database Webhook (Supabase Dashboard → Database → Webhooks)
-- Name: `notifications_send_push`
-- Table: `notifications` · Event: **Insert**
-- Type: **Supabase Edge Functions** · Function: `send-push` · Method: POST
-- Auto-includes the service role key as Authorization
-
-### Tables
-- `device_tokens(id, userId, token, platform, created_at, updated_at)` — written by frontend `Push` module on login, read by Edge Function. Cleared on logout + on FCM 404/410.
 
 ### Frontend (`Push` module in app.js)
 - Detects Capacitor (Android) vs Web; on either, calls platform-appropriate registration.
 - Capacitor: uses `@capacitor/push-notifications@8.0.3` plugin.
 - Web: uses Firebase JS SDK (`firebase-app`, `firebase-messaging` from CDN) + `firebase-messaging-sw.js`.
 - Permission requested ~3s after login (UX option C — "after first meaningful event").
-- Foreground messages shown via `showNotificationPopup()` toast, not as system notification (avoids double-buzz when app is open).
+- Foreground messages shown via `showNotificationPopup()` toast (avoids double-buzz when app is open).
+- Token saved to `device_tokens` on login; deleted on logout. Dead tokens auto-pruned by the Edge Function on FCM 404/410.
 
-### Deploying the Edge Function
+### Tables
+- **`device_tokens`** — `(id, userId, token, platform, created_at, updated_at)` with unique `(userId, token)`. RLS allows anon (matches the project's existing pattern).
+
+### Secrets (Supabase Dashboard → Project Settings → Edge Functions)
+| Secret | Source | What it's for |
+|---|---|---|
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase console → Service accounts → "Generate new private key" → **minify JSON before setting** | Edge Function signs Google OAuth JWT to call FCM |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | auto-injected by Supabase | Edge Function reads `device_tokens` |
+
+### Database Webhook
+- Configured in **Database → Webhooks** (not via SQL trigger).
+- **Name:** `notifications_send_push`
+- **Table:** `notifications` · **Event:** Insert
+- **Type:** Supabase Edge Functions · **Function:** `send-push` · **Method:** POST
+- Auto-includes service-role bearer token as Authorization (so the function's gateway auth doesn't matter).
+
+### Edge Function — `send-push` (deployed with `--no-verify-jwt`)
+- Source: `supabase/functions/send-push/index.ts`
+- Runtime: Deno on Supabase
+- Generates Google OAuth2 access tokens by signing JWTs (RS256) with the service-account private key. Cached in-memory between invocations (~50 min validity).
+- Reads recipient `userId` from the webhook payload's `record.userId`.
+- Sends Android (HIGH priority) + Web Push variants in one FCM call.
+- Cleans up dead tokens automatically on 404/410/UNREGISTERED.
+
+### Deploying / re-deploying the Edge Function
 ```bash
-# One-time CLI auth (in user's terminal — opens browser)
+# One-time CLI auth (in user's terminal — opens a browser)
 npx supabase login
 
-# Deploy
 cd D:\milkmate
+
+# (Re)deploy the function
 npx supabase functions deploy send-push --no-verify-jwt
 
-# Set / update the FCM service account secret (always minify JSON first!)
+# Set / update the FCM service-account secret. CRITICAL: minify first.
+# Multi-line bash arg passing truncates the secret to `{`.
 node -e 'process.stdout.write(JSON.stringify(require("./milkmate-d77d6-firebase-adminsdk-fbsvc-XXXXX.json")))' > /tmp/sa-min.json
 npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat /tmp/sa-min.json)"
 rm /tmp/sa-min.json
 ```
 
-### Quick test
+### Quick verification (push to specific user)
 ```bash
 curl -s -X POST "https://kmauurezrgovucpbkekq.supabase.co/functions/v1/send-push" \
   -H "Content-Type: application/json" \
-  -d '{"record":{"userId":"u_admin","title":"Test","body":"Hi","type":"test","id":"t1"}}'
+  -d '{"record":{"userId":"giv7grr0","title":"Test","body":"Hi","type":"test","id":"t1"}}'
 # Expected: {"ok":true,"sent":N,"results":[{"id":"...","status":200,...}]}
 ```
 
-If `sent: 0` → no `device_tokens` row for that userId (user hasn't installed the FCM-enabled APK or hasn't granted permission yet).
-If `status: 401` → JWT signing failed, check service-account secret is valid + minified.
-If `status: 404` from FCM → token is stale; the function deletes it automatically.
+| Symptom | Likely cause |
+|---|---|
+| `sent: 0` | No `device_tokens` row for that userId — user hasn't installed FCM-enabled APK or hasn't granted permission. |
+| `status: 401` from FCM | JWT signing failed → check `FIREBASE_SERVICE_ACCOUNT` secret is valid minified JSON. |
+| `status: 404`/`410` from FCM | Token is stale; function deletes it automatically — user just needs to re-login on that device. |
+| `JSON.parse(FIREBASE_SERVICE_ACCOUNT) failed` | Secret was set with multi-line value. Re-run with the minify-first command above. |
+| Webhook fired but no push | Check Edge Function logs at the URL above. Most common: secret missing or stale token. |
 
 ---
 
@@ -633,10 +659,12 @@ MM.navigate('admin')
 2. **Tighten Row-Level Security** — anon can read every user's `password_hash` today. After moving to Supabase Auth, replace `using (true)` policies with per-user policies.
 3. **Photos in Supabase Storage** — currently base64 in DB column. Fine at small scale, eventually move to Storage bucket (`/avatars/`, `/delivery-proofs/`).
 4. **Offline write queue** — reads work offline (cache). Writes currently fail silently if offline.
-5. **Push notifications when app is closed** — needs Web Push subscription + backend (Edge Function).
-6. **Auto-recurring billing** — admin marks payments manually for now. Later: integrate Razorpay/Stripe + automatic plan renewal.
-7. **Dunning** — WhatsApp owners 5/2/0 days before expiry. Currently no automated reminders.
-8. **Subscription audit log** — `subscription_payments` table is in place but admin UI for viewing payment history is minimal. Expand if needed.
+5. **Auto-recurring billing** — admin marks payments manually for now. Later: integrate Razorpay/Stripe + automatic plan renewal.
+6. **Dunning** — WhatsApp owners 5/2/0 days before expiry. Currently no automated reminders.
+7. **Subscription audit log** — `subscription_payments` table is in place but admin UI for viewing payment history is minimal. Expand if needed.
+8. **Edge Function hardening** — `send-push` is deployed with `--no-verify-jwt` so it's publicly callable. The Database Webhook does include the service-role bearer token in its request, so re-enable verify_jwt later: `npx supabase functions deploy send-push` (without the `--no-verify-jwt` flag). Keeps spam-push attacks off the table.
+
+✅ **Done in this iteration:** GitHub Pages migration, dark theme + Paytm-style settings, frequency-based deliveries, admin UPI for owner subscription payments, FCM push notifications end-to-end (Edge Function + Database Webhook + APK plugin), remember-password login, gesture-back navigation, editable owner profile.
 
 ---
 
@@ -651,4 +679,4 @@ If a new chat session starts and you want to continue:
 
 ---
 
-*Last updated: v10 — migrated from Netlify to GitHub Pages. Owner login via password (admin keeps OTP `1235`), notifications inbox got multi-select + delete-all, subscription system live (Monthly ₹200 / Quarterly ₹500 / Yearly ₹1500 + 2-day grace + 7-day trial), per-owner customer drill-down for admin, hard-delete owner with cascade. Backup at `D:\milkmate-backup-20260430-190523.zip`.*
+*Last updated: v27 (2026-05-02) — FCM push notifications live end-to-end. Customer order on phone A → push to locked phone B (owner) ✓. New stack additions: Firebase project `milkmate-d77d6`, `device_tokens` table, `send-push` Edge Function, `notifications_send_push` Database Webhook, `@capacitor/push-notifications@8.0.3` baked into the APK, `firebase-config.js` + `firebase-messaging-sw.js` for web push. Service-account JSON stored only as Supabase secret `FIREBASE_SERVICE_ACCOUNT` — `*firebase-adminsdk*.json` in .gitignore. Backup at `D:\milkmate-backup-20260430-190523.zip`.*
