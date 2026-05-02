@@ -44,17 +44,18 @@ const Store = {
       const oid = currentOwnerId();      // null for admin (or no session yet)
       const isAdmin = App && App.user && App.user.role === 'admin';
 
-      // USERS — always load. Admins see all; others see (their dairy's users + the owner + admin + legacy NULL).
-      // Legacy NULL ownerId users get attributed to the current dairy until SQL migration backfills.
+      // USERS — always load. Admin sees all; an owner sees themselves + their customers/boys + admin.
+      // Other owners and orphan (NULL ownerId) customers/boys are NOT included — they belong to other dairies
+      // (or no dairy at all) and would pollute the multi-tenant view.
       const usersQ = sb.from('users').select('*');
       const userScope = oid
-        ? usersQ.or('id.eq.' + oid + ',ownerId.eq.' + oid + ',ownerId.is.null,role.eq.admin')
+        ? usersQ.or('id.eq.' + oid + ',ownerId.eq.' + oid + ',role.eq.admin')
         : usersQ;
 
-      // Helper to apply owner scope to a per-record table.
-      // Includes legacy rows with NULL ownerId so the app keeps working before the SQL migration backfills.
-      // Once an owner saves anything, those rows get stamped with the owner's id and stop being orphaned.
-      const scoped = (q) => oid && !isAdmin ? q.or('ownerId.eq.' + oid + ',ownerId.is.null') : q;
+      // Helper to scope per-record tables to the current dairy. We intentionally do NOT include
+      // ownerId.is.null — orphan rows from before the multi-tenant migration shouldn't bleed into
+      // a new owner's view. Admin sees everything (no scope).
+      const scoped = (q) => oid && !isAdmin ? q.eq('ownerId', oid) : q;
 
       const [users, deliveries, pauses, extras, payments, notifs, hols, prods, ratings, dsRes, plansRes, subPaysRes] = await Promise.all([
         userScope,
