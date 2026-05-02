@@ -5116,7 +5116,18 @@ function goNotifications() {
         if (isSelected) sel.ids.delete(n.id);
         else sel.ids.add(n.id);
         goNotifications();
-      } : null
+      } : () => {
+        if (!n.read) { n.read = true; Store.save(); }
+        // Admin tapping a "New owner signup" notif → open that pending owner's detail modal
+        if (App.user && App.user.role === 'admin' && n.type === 'order' && /signup/i.test(n.title || '')) {
+          const m = (n.body || '').match(/(\d{10})/);
+          const pending = m && Store.data.users.find(u =>
+            u.mobile === m[1] && u.role === 'owner' && u.status === 'pending'
+          );
+          if (pending) { adminOwnerDetail(pending.id); return; }
+          navigate('admin'); return;
+        }
+      }
     }, [
       sel.mode ? el('input', {
         type: 'checkbox', class: 'notif-check', checked: isSelected,
