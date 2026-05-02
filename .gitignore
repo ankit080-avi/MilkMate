@@ -3,6 +3,11 @@ DEPLOY.local.md
 .env
 .env.local
 
+# Firebase service-account (server secret — used by the Edge Function;
+# stored as Supabase Edge Function secret, never committed)
+*firebase-adminsdk*.json
+service-account*.json
+
 # Tooling caches (host-machine specific)
 .netlify/
 .claude/
