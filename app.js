@@ -826,11 +826,136 @@ function setSession(user) {
   if (user) {
     localStorage.setItem('milkmate-session', user.id);
     Store.Presence.track(user);
+    // Defer push registration so we don't prompt for notif permission during the
+    // login form interaction. Fires after the user has had a moment to land on
+    // their dashboard (Permission UX option C — first meaningful event).
+    setTimeout(() => Push.register(user), 3000);
   } else {
     localStorage.removeItem('milkmate-session');
     Store.Presence.untrack();
+    Push.unregister();
   }
 }
+
+// ─── FCM push registration (Capacitor Android + Web) ─────────────────
+// Stores tokens in the device_tokens table. The server-side Edge Function
+// (built next) reads from there and dispatches pushes when notification
+// rows are inserted.
+const Push = {
+  isCapacitor() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  },
+  isConfigured() {
+    const c = self.FIREBASE_CONFIG;
+    return c && c.apiKey && c.projectId && c.appId;
+  },
+  // _msg holds the messaging instance for foreground onMessage cleanup
+  _msg: null,
+
+  async register(user) {
+    if (!user) return;
+    if (!this.isConfigured()) {
+      console.info('[Push] firebase-config.js not filled in — skipping FCM register.');
+      return;
+    }
+    try {
+      if (this.isCapacitor()) {
+        await this.registerCapacitor(user);
+      } else {
+        await this.registerWeb(user);
+      }
+    } catch (e) {
+      console.warn('[Push] register failed', e);
+    }
+  },
+
+  async registerCapacitor(user) {
+    const PN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
+    if (!PN) {
+      console.info('[Push] @capacitor/push-notifications not installed yet — skipping native register.');
+      return;
+    }
+    const perm = await PN.requestPermissions();
+    if (perm && perm.receive !== 'granted') return;
+    PN.addListener('registration', async (regToken) => {
+      await this.saveToken(user.id, regToken.value, 'android');
+    });
+    PN.addListener('registrationError', (err) => {
+      console.warn('[Push] FCM registration error', err);
+    });
+    // Foreground push on Android — surface as in-app popup
+    PN.addListener('pushNotificationReceived', (notif) => {
+      try {
+        if (typeof showNotificationPopup === 'function') {
+          showNotificationPopup('order', notif.title || 'MilkMate', notif.body || '');
+        }
+      } catch (e) {}
+    });
+    await PN.register();
+  },
+
+  async registerWeb(user) {
+    if (!('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) return;
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission === 'default') {
+      const r = await Notification.requestPermission();
+      if (r !== 'granted') return;
+    }
+    const cfg = self.FIREBASE_CONFIG;
+    // Register the FCM service worker (separate from the existing app SW)
+    const swReg = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+    // Dynamically import Firebase modular SDK from the Google CDN
+    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js');
+    const { getMessaging, getToken, onMessage } = await import('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging.js');
+    const app = initializeApp(cfg);
+    const messaging = getMessaging(app);
+    this._msg = messaging;
+    const token = await getToken(messaging, {
+      vapidKey: cfg.vapidKey,
+      serviceWorkerRegistration: swReg
+    });
+    if (token) await this.saveToken(user.id, token, 'web');
+    // Foreground messages → in-app popup (system notification only fires when app is backgrounded)
+    onMessage(messaging, (payload) => {
+      const n = (payload && payload.notification) || {};
+      try {
+        if (typeof showNotificationPopup === 'function') {
+          showNotificationPopup('order', n.title || 'MilkMate', n.body || '');
+        }
+      } catch (e) {}
+    });
+  },
+
+  async saveToken(userId, token, platform) {
+    if (!sb || !token || !userId) return;
+    try {
+      const id = 'dt_' + userId + '_' + token.slice(0, 24).replace(/[^a-zA-Z0-9]/g, '');
+      await sb.from('device_tokens').upsert({
+        id, userId, token, platform, updated_at: new Date().toISOString()
+      }, { onConflict: 'userId,token' });
+      // Remember locally so unregister can find this row to delete
+      localStorage.setItem('mm-fcm-token', JSON.stringify({ userId, token }));
+    } catch (e) {
+      console.warn('[Push] saveToken failed', e);
+    }
+  },
+
+  async unregister() {
+    try {
+      const raw = localStorage.getItem('mm-fcm-token');
+      if (!raw) return;
+      const { userId, token } = JSON.parse(raw) || {};
+      if (sb && userId && token) {
+        await sb.from('device_tokens')
+          .delete()
+          .eq('userId', userId)
+          .eq('token', token);
+      }
+    } catch (e) {} finally {
+      localStorage.removeItem('mm-fcm-token');
+    }
+  }
+};
 
 // Returns a "● Online" pill that's hidden via CSS when the user is offline.
 // Always emit the node so the presence-change handler can toggle visibility live
