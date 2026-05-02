@@ -1192,7 +1192,15 @@ function viewLogin() {
 
   // Stages: phone → otp (admin or owner) | password (customer/boy) | set_password (legacy)
   //         | signup (only for new owner registration) | pending (owner awaiting approval) | rejected
-  const state = { mobile: '', otp: '', password: '', password2: '', stage: 'phone', existingUser: null, signupRole: 'owner' };
+  const state = { mobile: '', otp: '', password: '', password2: '', stage: 'phone', existingUser: null, signupRole: 'owner', remember: true };
+  // Pre-fill mobile (and password for that mobile) from remembered creds, if any
+  try {
+    const raw = localStorage.getItem('milkmate-creds');
+    if (raw) {
+      const c = JSON.parse(raw);
+      if (c && c.mobile) state.mobile = c.mobile;
+    }
+  } catch (e) {}
 
   const render = () => {
     clear($view);
@@ -1276,6 +1284,17 @@ function viewLogin() {
           autofocus: true, value: state.password,
           oninput: (e) => state.password = e.target.value
         })
+      ]));
+      // Remember password checkbox — prefilled mobile + password on next launch
+      form.appendChild(el('label', {
+        class: 'remember-row', style: 'display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:13px;cursor:pointer'
+      }, [
+        el('input', {
+          type: 'checkbox', id: 'lg-remember', checked: state.remember,
+          onchange: (e) => state.remember = e.target.checked,
+          style: 'width:18px;height:18px;accent-color:var(--primary)'
+        }),
+        el('span', {}, 'Remember password on this device')
       ]));
       form.appendChild(el('button', { class: 'btn btn-primary btn-block', type: 'submit' }, t('login')));
       form.appendChild(el('button', {
@@ -1408,6 +1427,17 @@ function viewLogin() {
         return;
       }
       state.existingUser = existing;
+      // If we have remembered creds for THIS mobile, prefill password
+      try {
+        const raw = localStorage.getItem('milkmate-creds');
+        if (raw) {
+          const c = JSON.parse(raw);
+          if (c && c.mobile === state.mobile && c.password) {
+            state.password = c.password;
+            state.remember = true;
+          }
+        }
+      } catch (e) {}
       // Admin: OTP only (1235)
       if (existing.role === 'admin') {
         state.stage = 'otp';
@@ -1455,6 +1485,12 @@ function viewLogin() {
         if (dairy && ownerSubscriptionState(dairy) === 'expired') {
           return toast('Service expired — contact your dairy owner', 'error');
         }
+      }
+      // Persist or clear remembered creds based on the checkbox
+      if (state.remember) {
+        try { localStorage.setItem('milkmate-creds', JSON.stringify({ mobile: state.mobile, password: state.password })); } catch (e) {}
+      } else {
+        try { localStorage.removeItem('milkmate-creds'); } catch (e) {}
       }
       setSession(u);
       toast(t('welcome_back') + ', ' + u.name.split(' ')[0]);
@@ -1523,6 +1559,8 @@ function viewLogin() {
 
 function logout() {
   setSession(null);
+  // Drop remembered credentials so the user sees a fresh login screen
+  try { localStorage.removeItem('milkmate-creds'); } catch (e) {}
   navigate('login');
 }
 
