@@ -393,11 +393,16 @@ const Store = {
         });
     },
     untrack() {
-      if (this.channel) {
-        try { this.channel.unsubscribe(); } catch (e) {}
-        this.channel = null;
-      }
+      const ch = this.channel;
+      this.channel = null;
       this.online = new Set();
+      if (ch) {
+        // Explicitly untrack first so other clients see us leave immediately.
+        // Without this the user remains in the presence state until the WebSocket times out.
+        Promise.resolve(ch.untrack && ch.untrack())
+          .catch(() => {})
+          .finally(() => { try { ch.unsubscribe(); } catch (e) {} });
+      }
     },
     has(userId) { return this.online.has(userId); }
   },
@@ -1109,7 +1114,7 @@ function pendingOrderCount(user) {
 // Profile avatar shown on the left of the topbar — tappable, opens settings (owner) or no-op.
 function topbarAvatar(user) {
   if (!user) return null;
-  const onClick = user.role === 'owner' ? () => ownerSettings('list')
+  const onClick = user.role === 'owner' ? () => openOwnerSettings()
                 : user.role === 'admin' ? () => adminSettingsModal()
                 : null;
   const initial = (user.name || '?')[0].toUpperCase();
@@ -2399,7 +2404,7 @@ function ownerHome() {
   $view.appendChild(topbar({
     title: 'Hi, ' + App.user.name.split(' ')[0], subtitle: 'Owner dashboard',
     bell: true, logout: true,
-    right: el('button', { class: 'icon-btn', onclick: () => ownerSettings(), 'aria-label': 'Settings', html: ICON.settings })
+    right: el('button', { class: 'icon-btn', onclick: () => openOwnerSettings(), 'aria-label': 'Settings', html: ICON.settings })
   }));
 
   // Subscription card — countdown + status + renew button
@@ -2437,7 +2442,7 @@ function ownerHome() {
   const tomHoliday = getHoliday(tomISO);
   const tomActive = customers.filter(c => !isPaused(c.id, tomISO) && isDeliveryDue(c, tomISO));
   const tomMl = tomHoliday ? 0 : tomActive.reduce((s, c) => s + (c.dailyMl || 0), 0);
-  page.appendChild(el('div', { class: 'card', style: 'margin-top:14px;cursor:pointer;background:linear-gradient(135deg,#fff,var(--primary-soft))', onclick: () => ownerProcurementDetail() }, [
+  page.appendChild(el('div', { class: 'card', style: 'margin-top:14px;cursor:pointer;background:linear-gradient(135deg,var(--surface),var(--primary-soft))', onclick: () => ownerProcurementDetail() }, [
     el('div', { class: 'row gap-md', style: 'align-items:center' }, [
       el('div', { class: 'li-avatar', style: 'background:var(--primary);color:#fff;font-size:18px' }, '📦'),
       el('div', { style: 'flex:1' }, [
@@ -3643,6 +3648,25 @@ function uniqueProductKey(base) {
 
 // Module-level section state — preserved across internal re-renders (after add/delete etc.)
 let _ownerSettingsSection = 'list';
+// Distinguishes "we're entering settings from the owner home" (push handler that returns to home)
+// from internal re-renders within settings (don't push another handler).
+let _ownerSettingsEntered = false;
+
+// Entry point — call this from icon clicks etc. Always pushes a back handler returning to home.
+function openOwnerSettings() {
+  if (!_ownerSettingsEntered) {
+    pushBackHandler(() => {
+      _ownerSettingsSection = 'list';
+      _ownerSettingsEntered = false;
+      document.body.classList.remove('no-tabs');
+      $tabbar.hidden = false;
+      viewOwner();
+    });
+    _ownerSettingsEntered = true;
+  }
+  _ownerSettingsSection = 'list';
+  ownerSettings();
+}
 
 function ownerSettings(target) {
   if (target !== undefined) {
@@ -3661,10 +3685,15 @@ function ownerSettings(target) {
   clear($view);
 
   const goBackToOwner = () => {
-    document.body.classList.remove('no-tabs');
-    $tabbar.hidden = false;
-    _ownerSettingsSection = 'list';
-    viewOwner();
+    // Pop the entry-handler we pushed in openOwnerSettings, which restores the owner home.
+    if (_ownerSettingsEntered) {
+      popBack();
+    } else {
+      document.body.classList.remove('no-tabs');
+      $tabbar.hidden = false;
+      _ownerSettingsSection = 'list';
+      viewOwner();
+    }
   };
 
   const sections = [
@@ -3713,6 +3742,7 @@ function ownerSettings(target) {
 
   // ─── Profile ─────────────────────────────────────────────
   if (_ownerSettingsSection === 'profile') {
+    // Photo card
     const myCard = el('div', { class: 'card', style: 'display:flex;align-items:center;gap:14px' });
     const myAvatarWrap = el('div', {});
     const renderMyAvatar = () => {
@@ -3720,20 +3750,19 @@ function ownerSettings(target) {
       if (me.photo) {
         myAvatarWrap.appendChild(el('div', {
           class: 'avatar-photo is-tappable',
-          style: 'width:60px;height:60px;border-radius:50%;background-image:url(' + me.photo + ');background-size:cover;background-position:center;cursor:zoom-in',
+          style: 'width:64px;height:64px;border-radius:50%;background-image:url(' + me.photo + ');background-size:cover;background-position:center;cursor:zoom-in',
           onclick: () => openPhotoLightbox(me.photo, me.name),
           role: 'button', 'aria-label': 'View my photo'
         }));
       } else {
-        myAvatarWrap.appendChild(el('div', { style: 'width:60px;height:60px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-family:var(--font-head);font-weight:800;font-size:24px' }, (me.name || '?')[0].toUpperCase()));
+        myAvatarWrap.appendChild(el('div', { style: 'width:64px;height:64px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-family:var(--font-head);font-weight:800;font-size:26px' }, (me.name || '?')[0].toUpperCase()));
       }
     };
     renderMyAvatar();
     myCard.appendChild(myAvatarWrap);
     myCard.appendChild(el('div', { style: 'flex:1' }, [
-      el('div', { style: 'font-weight:700;font-size:15px' }, me.name),
-      el('div', { class: 'text-muted', style: 'font-size:13px' }, me.role === 'owner' ? 'Owner' : me.role === 'delivery_boy' ? 'Delivery Boy' : 'Customer'),
-      el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:2px' }, '+91 ' + me.mobile)
+      el('div', { class: 'text-muted', style: 'font-size:12px' }, me.role === 'owner' ? 'Owner' : me.role === 'delivery_boy' ? 'Delivery Boy' : 'Customer'),
+      el('div', { style: 'font-size:13px;margin-top:2px' }, 'Tap the camera to ' + (me.photo ? 'change' : 'add') + ' a photo')
     ]));
     myCard.appendChild(el('button', {
       class: 'btn btn-sm btn-ghost',
@@ -3759,6 +3788,48 @@ function ownerSettings(target) {
         }
       }, 'Remove profile photo'));
     }
+
+    // Editable details card
+    const details = el('div', { class: 'card', style: 'margin-top:12px' });
+    details.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Full name'),
+      el('input', { class: 'input', id: 'pf-name', type: 'text', value: me.name || '' })
+    ]));
+    details.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Mobile (10 digits)'),
+      el('input', { class: 'input', id: 'pf-mobile', type: 'tel', inputmode: 'numeric', maxlength: 10, value: me.mobile || '' })
+    ]));
+    details.appendChild(el('div', { class: 'field' }, [
+      el('label', {}, 'Address'),
+      el('textarea', { class: 'input', id: 'pf-addr', rows: 2, placeholder: 'Your address (optional)' }, me.address || '')
+    ]));
+    details.appendChild(el('button', {
+      class: 'btn btn-primary btn-block',
+      onclick: () => {
+        const name = document.getElementById('pf-name').value.trim();
+        const mobile = document.getElementById('pf-mobile').value.replace(/\D/g, '');
+        const addr = document.getElementById('pf-addr').value.trim();
+        if (!name) return toast('Enter your name', 'error');
+        if (mobile.length !== 10) return toast('Enter a valid 10-digit mobile', 'error');
+        // Reject mobile that's already used by a different account
+        const conflict = Store.data.users.find(u => u.mobile === mobile && u.id !== me.id);
+        if (conflict) return toast('That mobile is already used by another account', 'error');
+        me.name = name;
+        me.mobile = mobile;
+        me.address = addr;
+        Store.save();
+        // Refresh the session cache so the topbar greeting / avatar update immediately
+        if (App.user && App.user.id === me.id) {
+          App.user.name = name;
+          App.user.mobile = mobile;
+          App.user.address = addr;
+          sessionStorage.setItem('milkmate-session', JSON.stringify(App.user));
+        }
+        toast('Profile saved', 'success');
+        ownerSettings();
+      }
+    }, 'Save'));
+    page.appendChild(details);
   }
 
   // ─── Business info ───────────────────────────────────────

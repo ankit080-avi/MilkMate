@@ -782,7 +782,10 @@ body.no-tabs .wa-fab { bottom: calc(var(--safe-bottom) + 16px); }
 /* Subscription banner on owner home — color reflects state */
 .sub-card { color: #fff; box-shadow: var(--shadow-sm); }
 .sub-card .btn-light {
-  background: rgba(255,255,255,0.95); color: var(--text);
+  background: rgba(255,255,255,0.95);
+  /* Hardcode dark text — sub-card bgs are coloured gradients regardless of theme,
+     and the button background is always white, so text must be dark for contrast. */
+  color: #1A2233;
   border: none; font-weight: 700;
 }
 .sub-card .btn-light:hover { background: #fff; }
