@@ -1377,7 +1377,7 @@ function viewLogin() {
             state.signupRole = 'owner';
             render();
           }
-        }, 'Sign up → →')
+        }, 'Sign up →')
       ]));
 
     } else if (state.stage === 'otp') {
