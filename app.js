@@ -356,24 +356,57 @@ const Store = {
     }
   },
 
-  subscribeRealtime() {
-    if (!sb || this._channel) return;
-    this._channel = sb.channel('mm-realtime')
-      //.on('postgres_changes', { event: '*', schema: 'public' }, () => {
-      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
-      if (payload.table === 'notifications') return; // ← ADD KARO
-        clearTimeout(this._refetchTimer);
-        this._refetchTimer = setTimeout(() => {
-          this.loadFromRemote().then(() => {
-            if (App && App.user) {
-              try { navigate(App.route || App.user.role); } catch (e) {}
-            }
-          });
-        }, 250);
-      })
-      .subscribe();
-  },
+  // subscribeRealtime() {
+  //   if (!sb || this._channel) return;
+  //   this._channel = sb.channel('mm-realtime')
+  //     //.on('postgres_changes', { event: '*', schema: 'public' }, () => {
+  //     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+  //     if (payload.table === 'notifications') return; // ← ADD KARO
+  //       clearTimeout(this._refetchTimer);
+  //       this._refetchTimer = setTimeout(() => {
+  //         this.loadFromRemote().then(() => {
+  //           if (App && App.user) {
+  //             try { navigate(App.route || App.user.role); } catch (e) {}
+  //           }
+  //         });
+  //       }, 250);
+  //     })
+  //     .subscribe();
+  // },
 
+subscribeRealtime() {
+  if (!sb || this._channel) return;
+  this._channel = sb.channel('mm-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+
+      // Notifications skip karo
+      if (payload.table === 'notifications') return;
+
+      // ── OWNER SCOPE FILTER ──
+      // Sirf apne dairy ka change process karo
+      const currentOid = currentOwnerId();
+      if (currentOid) {
+        const record = payload.new || payload.old || {};
+        const recordOid = record.ownerId || record.owner_id || null;
+
+        // Agar record ka ownerId hai aur current owner ka nahi match karta
+        // toh is change ko ignore karo
+        if (recordOid && recordOid !== currentOid) return;
+      }
+      // ─────────────────────────
+
+      clearTimeout(this._refetchTimer);
+      this._refetchTimer = setTimeout(() => {
+        this.loadFromRemote().then(() => {
+          if (App && App.user) {
+            try { navigate(App.route || App.user.role); } catch (e) {}
+          }
+        });
+      }, 250);
+    })
+    .subscribe();
+},
+   
   // Realtime Presence — tracks which users currently have the app open.
   // Owner uses Presence.has(userId) to render the green online dot.
   Presence: {
