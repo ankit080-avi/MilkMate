@@ -4336,27 +4336,19 @@ else if (_ownerSettingsSection === 'notifications') {
 
 else if (_ownerSettingsSection === 'customers') {
 
-  const ownerId = String(App.user.id);
+  const ownerId = App.user?.id;
 
-  // 🔹 Normalize once (fixes role + owner mismatch bugs)
-  const users = Store.data.users.map(u => ({
-    ...u,
-    roleNorm: (u.role || '').trim().toLowerCase(),
-    ownerNorm: String(u.ownerId || '')
-  }));
-
-  // 🔹 Base filters (STRICT owner scoped)
-  const customers = users.filter(u =>
-    u.roleNorm === 'customer' &&
-    u.ownerNorm === ownerId
+  const customers = (Store.data.users || []).filter(u =>
+    u.role === 'customer' &&
+    String(u.ownerId) === String(ownerId)
   );
 
-  const boys = users.filter(u =>
-    u.roleNorm === 'delivery_boy' &&
-    u.ownerNorm === ownerId
+  const boys = (Store.data.users || []).filter(u =>
+    u.role === 'delivery_boy' &&
+    String(u.ownerId) === String(ownerId)
   );
 
-  // 🔹 View state
+  // state
   if (!App.customerSettingsView) {
     App.customerSettingsView = { search: '', boy: 'all' };
   }
@@ -4375,7 +4367,7 @@ else if (_ownerSettingsSection === 'customers') {
     }
   });
 
-  // 📌 Boy filter
+  // 📌 Filter
   const boyFilter = el('select', {
     class: 'select',
     onchange: (e) => {
@@ -4401,28 +4393,30 @@ else if (_ownerSettingsSection === 'customers') {
     }, '+ Add')
   ]));
 
-  // Search + filter UI
+  // controls
   page.appendChild(el('div', { class: 'row gap-sm', style: 'margin-bottom:12px' }, [
     searchInput,
     boyFilter
   ]));
 
-  // 🔥 Filtering logic (clean + fast)
-  const q = (v.search || '').toLowerCase().trim();
+  const q = v.search.toLowerCase().trim();
 
-  const filtered = customers.filter(c => {
+  // 🔥 SAFE FILTER (FIXED LOGIC)
+  let filtered = customers.filter(c => {
+
     const name = (c.name || '').toLowerCase();
     const mobile = (c.mobile || '').toString();
 
-    if (q && !name.includes(q) && !mobile.includes(q)) {
-      return false;
-    }
+    const matchesSearch =
+      !q ||
+      name.includes(q) ||
+      mobile.includes(q);
 
-    if (v.boy !== 'all' && String(c.assignedBoyId || '') !== String(v.boy)) {
-      return false;
-    }
+    const matchesBoy =
+      v.boy === 'all' ||
+      String(c.assignedBoyId || '') === String(v.boy);
 
-    return true;
+    return matchesSearch && matchesBoy;
   });
 
   // 📊 Stats
@@ -4451,74 +4445,76 @@ else if (_ownerSettingsSection === 'customers') {
     page.appendChild(emptyState(
       '🔍',
       'No customers found',
-      'Try changing search or filter.'
+      'Try search or filter'
     ));
-  } else {
-
-    const list = el('div', { class: 'list' });
-
-    filtered.forEach(c => {
-
-      const bill = customerMonthBill(c.id, monthKey());
-      const boy = boys.find(b => b.id === c.assignedBoyId);
-
-      list.appendChild(el('div', {
-        class: 'list-item is-clickable',
-        onclick: () => customerForm(c)
-      }, [
-
-        avatarFor(c),
-
-        el('div', { class: 'li-body' }, [
-          el('div', { class: 'li-title' }, c.name),
-          el('div', { class: 'li-sub' },
-            '+91 ' + c.mobile +
-            ' · ' + fmtQty(c.dailyMl) +
-            (boy ? ' · ' + boy.name : '')
-          )
-        ]),
-
-        el('div', { class: 'li-aside', style: 'text-align:right' }, [
-
-          bill?.due > 0
-            ? el('div', {
-                class: 'amount',
-                style: 'color:var(--warning);font-size:13px'
-              }, fmtMoney(bill.due) + ' due')
-            : el('div', {
-                style: 'color:var(--text-muted);font-size:12px'
-              }, 'Settled'),
-
-          // 📲 WhatsApp
-          el('button', {
-            class: 'icon-btn',
-            style: 'margin-top:6px',
-            onclick: (e) => {
-              e.stopPropagation();
-
-              const msg = encodeURIComponent(
-                `Hi ${c.name}, your milk bill is ${fmtMoney(bill?.due || 0)}.`
-              );
-
-              window.open(
-                `https://wa.me/91${c.mobile}?text=${msg}`,
-                '_blank'
-              );
-            }
-          }, '📲')
-
-        ]),
-
-        el('div', {
-          style: 'position:absolute;inset:0',
-          onclick: () => customerForm(c)
-        })
-
-      ]));
-    });
-
-    page.appendChild(list);
+    return;
   }
+
+  // List
+  const list = el('div', { class: 'list' });
+
+  filtered.forEach(c => {
+
+    const bill = customerMonthBill(c.id, monthKey());
+    const boy = boys.find(b => String(b.id) === String(c.assignedBoyId));
+
+    list.appendChild(el('div', {
+      class: 'list-item is-clickable',
+      onclick: () => customerForm(c)
+    }, [
+
+      avatarFor(c),
+
+      el('div', { class: 'li-body' }, [
+        el('div', { class: 'li-title' }, c.name),
+        el('div', { class: 'li-sub' },
+          '+91 ' + c.mobile +
+          ' · ' + fmtQty(c.dailyMl || 0) +
+          (boy ? ' · ' + boy.name : '')
+        )
+      ]),
+
+      el('div', { class: 'li-aside', style: 'text-align:right' }, [
+
+        bill?.due > 0
+          ? el('div', {
+              class: 'amount',
+              style: 'color:var(--warning);font-size:13px'
+            }, fmtMoney(bill.due))
+          : el('div', {
+              style: 'color:var(--text-muted);font-size:12px'
+            }, 'Settled'),
+
+        // 📲 WhatsApp
+        el('button', {
+          class: 'icon-btn',
+          style: 'margin-top:6px',
+          onclick: (e) => {
+            e.stopPropagation();
+
+            const msg = encodeURIComponent(
+              `Hi ${c.name}, your milk bill is ${fmtMoney(bill?.due || 0)}.`
+            );
+
+            window.open(
+              `https://wa.me/91${c.mobile}?text=${msg}`,
+              '_blank'
+            );
+          }
+        }, '📲')
+
+      ]),
+
+      // overlay click
+      el('div', {
+        style: 'position:absolute;inset:0',
+        onclick: () => customerForm(c)
+      })
+
+    ]));
+  });
+
+  page.appendChild(list);
 }   
    // else if (_ownerSettingsSection === 'customers') {
 
