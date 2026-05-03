@@ -2897,12 +2897,12 @@ function openPhotoLightbox(src, caption) {
 
 function customerForm(existing) {
   const isEdit = !!existing;
-  // Quota check — block new customers if owner has hit their limit. Edits are allowed.
   if (!isEdit && App.user && App.user.role === 'owner') {
     if (ownerAtQuota(App.user.id)) {
       return showQuotaReachedModal('customer');
     }
   }
+
   const wrap = el('div', {});
 
   // Photo picker
@@ -2911,21 +2911,26 @@ function customerForm(existing) {
   const renderPhoto = () => {
     photoBox.innerHTML = '';
     if (photoData) {
-      photoBox.appendChild(el('div', { class: 'avatar-photo avatar-large', style: 'background-image:url(' + photoData + ')' }));
+      photoBox.appendChild(el('div', {
+        class: 'avatar-photo avatar-large',
+        style: 'background-image:url(' + photoData + ')'
+      }));
     } else {
-      photoBox.appendChild(el('div', { class: 'avatar-large' }, (document.getElementById('cf-name')?.value || '?')[0].toUpperCase()));
+      photoBox.appendChild(el('div', { class: 'avatar-large' },
+        (document.getElementById('cf-name')?.value || '?')[0].toUpperCase()
+      ));
     }
-    const pickBtn = el('button', {
+    photoBox.appendChild(el('button', {
       class: 'btn btn-sm btn-ghost', type: 'button', style: 'margin-top:8px',
       onclick: async () => {
         const pic = await capturePhoto();
         if (pic) { photoData = pic; renderPhoto(); }
       }
-    }, photoData ? '✏️ Change photo' : '📷 Add photo');
-    photoBox.appendChild(pickBtn);
+    }, photoData ? '✏️ Change photo' : '📷 Add photo'));
     if (photoData) {
       photoBox.appendChild(el('button', {
-        class: 'btn btn-sm btn-ghost', type: 'button', style: 'margin-top:8px;margin-left:8px;color:var(--danger)',
+        class: 'btn btn-sm btn-ghost', type: 'button',
+        style: 'margin-top:8px;margin-left:8px;color:var(--danger)',
         onclick: () => { photoData = null; renderPhoto(); }
       }, 'Remove'));
     }
@@ -2935,22 +2940,34 @@ function customerForm(existing) {
 
   wrap.appendChild(el('div', { class: 'field' }, [
     el('label', {}, 'Full name'),
-    el('input', { class: 'input', id: 'cf-name', type: 'text', value: existing?.name || '', autofocus: true,
-      oninput: () => { if (!photoData) renderPhoto(); } })
+    el('input', {
+      class: 'input', id: 'cf-name', type: 'text',
+      value: existing?.name || '', autofocus: true,
+      oninput: () => { if (!photoData) renderPhoto(); }
+    })
   ]));
   wrap.appendChild(el('div', { class: 'field' }, [
     el('label', {}, 'Mobile (10 digits)'),
-    el('input', { class: 'input', id: 'cf-mobile', type: 'tel', inputmode: 'numeric', maxlength: 10, value: existing?.mobile || '' })
+    el('input', {
+      class: 'input', id: 'cf-mobile', type: 'tel',
+      inputmode: 'numeric', maxlength: 10,
+      value: existing?.mobile || ''
+    })
   ]));
   wrap.appendChild(el('div', { class: 'field' }, [
     el('label', {}, 'Address'),
-    el('input', { class: 'input', id: 'cf-addr', type: 'text', value: existing?.address || '' })
+    el('input', {
+      class: 'input', id: 'cf-addr', type: 'text',
+      value: existing?.address || ''
+    })
   ]));
   wrap.appendChild(el('div', { class: 'field' }, [
     el('label', {}, 'Quantity per delivery'),
-    el('select', { class: 'select', id: 'cf-qty' }, [250, 500, 750, 1000, 1500, 2000, 3000].map(q =>
-      el('option', { value: q, selected: existing?.dailyMl === q }, fmtQty(q))
-    ))
+    el('select', { class: 'select', id: 'cf-qty' },
+      [250, 500, 750, 1000, 1500, 2000, 3000].map(q =>
+        el('option', { value: q, selected: existing?.dailyMl === q }, fmtQty(q))
+      )
+    )
   ]));
   wrap.appendChild(el('div', { class: 'field' }, [
     el('label', {}, 'Delivery frequency'),
@@ -2964,37 +2981,51 @@ function customerForm(existing) {
       selected: (existing?.frequency || 'daily') === o.v
     }, o.l)))
   ]));
-  wrap.appendChild(el('button', { class: 'btn btn-primary btn-block', onclick: () => save() }, isEdit ? 'Save changes' : 'Add customer'));
+
+  wrap.appendChild(el('button', {
+    class: 'btn btn-primary btn-block',
+    onclick: () => save()
+  }, isEdit ? 'Save changes' : 'Add customer'));
+
   if (isEdit) {
     wrap.appendChild(el('button', {
       class: 'btn btn-ghost btn-block', style: 'margin-top:10px',
       onclick: async () => {
-        if (!await confirmDialog('Reset password?',
+        if (!await confirmDialog(
+          'Reset password?',
           'Clear ' + existing.name + '\'s password? They\'ll be asked to set a new one on next login.',
-          'Reset')) return;
+          'Reset'
+        )) return;
         existing.password_hash = null;
         Store.save();
         toast('Password reset — customer will set a new one on next login');
       }
     }, existing.password_hash ? '🔑 Reset password' : '🔑 No password set'));
+
     wrap.appendChild(el('button', {
       class: 'btn btn-danger btn-block', style: 'margin-top:10px',
       onclick: async () => {
-        if (!await confirmDialog('Delete customer?', 'This removes ' + existing.name + ' and their delivery history.', 'Delete')) return;
+        if (!await confirmDialog(
+          'Delete customer?',
+          'This removes ' + existing.name + ' and their delivery history.',
+          'Delete'
+        )) return;
         const cid = existing.id;
-        const delIds   = Store.data.deliveries.filter(d => d.customerId === cid).map(d => d.id);
-        const pauseIds = Store.data.pauses.filter(p => p.customerId === cid).map(p => p.id);
-        const extraIds = Store.data.extraOrders.filter(o => o.customerId === cid).map(o => o.id);
-        const payIds   = Store.data.payments.filter(p => p.customerId === cid).map(p => p.id);
-        const notifIds = Store.data.notifications.filter(n => n.userId === cid).map(n => n.id);
+        const delIds    = Store.data.deliveries.filter(d => d.customerId === cid).map(d => d.id);
+        const pauseIds  = Store.data.pauses.filter(p => p.customerId === cid).map(p => p.id);
+        const extraIds  = Store.data.extraOrders.filter(o => o.customerId === cid).map(o => o.id);
+        const payIds    = Store.data.payments.filter(p => p.customerId === cid).map(p => p.id);
+        const notifIds  = Store.data.notifications.filter(n => n.userId === cid).map(n => n.id);
         const ratingIds = (Store.data.productRatings || []).filter(r => r.customerId === cid).map(r => r.id);
-        Store.data.users         = Store.data.users.filter(u => u.id !== cid);
-        Store.data.deliveries    = Store.data.deliveries.filter(d => d.customerId !== cid);
-        Store.data.pauses        = Store.data.pauses.filter(p => p.customerId !== cid);
-        Store.data.extraOrders   = Store.data.extraOrders.filter(o => o.customerId !== cid);
-        Store.data.payments      = Store.data.payments.filter(p => p.customerId !== cid);
-        Store.data.notifications = Store.data.notifications.filter(n => n.userId !== cid);
+
+        Store.data.users          = Store.data.users.filter(u => u.id !== cid);
+        Store.data.deliveries     = Store.data.deliveries.filter(d => d.customerId !== cid);
+        Store.data.pauses         = Store.data.pauses.filter(p => p.customerId !== cid);
+        Store.data.extraOrders    = Store.data.extraOrders.filter(o => o.customerId !== cid);
+        Store.data.payments       = Store.data.payments.filter(p => p.customerId !== cid);
+        Store.data.notifications  = Store.data.notifications.filter(n => n.userId !== cid);
         Store.data.productRatings = (Store.data.productRatings || []).filter(r => r.customerId !== cid);
+
         Store.save();
         await Promise.all([
           Store.removeRemote('users', cid),
@@ -3005,60 +3036,249 @@ function customerForm(existing) {
           Store.removeRemote('notifications', notifIds),
           Store.removeRemote('product_ratings', ratingIds)
         ]);
-        // toast('Customer deleted');
-        // viewOwner();
+
+        toast('Customer deleted');
+
+        // Modal manually band karo bina history.back() ke
+        _popHandlers.pop();
+        $modal.hidden = true;
+        document.body.style.overflow = '';
+        clear($modalBody);
+
         if (_ownerSettingsSection === 'customers') {
+          App.customerSettingsView = null;
           ownerSettings('customers');
         } else {
           viewOwner();
-        }         
+        }
       }
     }, 'Delete customer'));
   }
 
+  // ── Save function ──
   function save() {
-    const name = document.getElementById('cf-name').value.trim();
+    const name   = document.getElementById('cf-name').value.trim();
     const mobile = document.getElementById('cf-mobile').value.replace(/\D/g, '');
-    const addr = document.getElementById('cf-addr').value.trim();
-    const qty = +document.getElementById('cf-qty').value;
-    const freq = document.getElementById('cf-freq').value || 'daily';
-    if (!name) return toast('Enter name', 'error');
+    const addr   = document.getElementById('cf-addr').value.trim();
+    const qty    = +document.getElementById('cf-qty').value;
+    const freq   = document.getElementById('cf-freq').value || 'daily';
+
+    if (!name)               return toast('Enter name', 'error');
     if (mobile.length !== 10) return toast('Enter 10-digit mobile', 'error');
-    // Mobile must be globally unique (one customer record per phone across all dairies)
-    const conflict = Store.data.users.find(u => u.mobile === mobile && u.id !== existing?.id);
+
+    // Admin ko conflict se bahar rakho
+    const conflict = Store.data.users.find(u =>
+      u.mobile === mobile &&
+      u.id !== existing?.id &&
+      u.role !== 'admin'
+    );
     if (conflict) return toast('That mobile is already used by another account', 'error');
-    const planLabel = ({ daily: 'Daily', alternate: 'Alternate', weekly: 'Weekly', monthly: 'Monthly' })[freq] + ' ' + fmtQty(qty);
+
+    const planLabel = ({
+      daily: 'Daily', alternate: 'Alternate',
+      weekly: 'Weekly', monthly: 'Monthly'
+    })[freq] + ' ' + fmtQty(qty);
+
     if (existing) {
-      Object.assign(existing, { name, mobile, address: addr, dailyMl: qty, frequency: freq, plan: planLabel, photo: photoData || null });
+      Object.assign(existing, {
+        name, mobile, address: addr,
+        dailyMl: qty, frequency: freq,
+        plan: planLabel, photo: photoData || null
+      });
     } else {
-      // Stamp ownerId so the new customer belongs to the current dairy.
-      // created_at is the anchor for non-daily frequency calculations — set locally so isDeliveryDue
-      // works before the next Supabase round-trip.
       const ownerId = App.user && App.user.role === 'owner' ? App.user.id : null;
       Store.data.users.push({
-        id: uid(), name, mobile, address: addr, dailyMl: qty, frequency: freq, plan: planLabel,
-        role: 'customer', photo: photoData || null, ownerId,
-        created_at: new Date().toISOString()
+        id: uid(), name, mobile, address: addr,
+        dailyMl: qty, frequency: freq, plan: planLabel,
+        role: 'customer', photo: photoData || null,
+        ownerId, created_at: new Date().toISOString()
       });
     }
-// Store.save();
-// toast(existing ? 'Customer updated' : 'Customer added', 'success');
-// closeModal();
-// viewOwner();   // ← YAHI problem hai
 
-// NAYA
     Store.save();
     toast(existing ? 'Customer updated' : 'Customer added', 'success');
-    closeModal();
+
+    // Modal manually band karo bina history.back() ke
+    _popHandlers.pop();
+    $modal.hidden = true;
+    document.body.style.overflow = '';
+    clear($modalBody);
+
     if (_ownerSettingsSection === 'customers') {
+      App.customerSettingsView = null;
       ownerSettings('customers');
     } else {
       viewOwner();
-    }     
+    }
   }
 
   openModal(isEdit ? 'Edit customer' : 'Add customer', wrap);
 }
+   
+// function customerForm(existing) {
+//   const isEdit = !!existing;
+//   // Quota check — block new customers if owner has hit their limit. Edits are allowed.
+//   if (!isEdit && App.user && App.user.role === 'owner') {
+//     if (ownerAtQuota(App.user.id)) {
+//       return showQuotaReachedModal('customer');
+//     }
+//   }
+//   const wrap = el('div', {});
+
+//   // Photo picker
+//   let photoData = existing?.photo || null;
+//   const photoBox = el('div', { class: 'avatar-picker' });
+//   const renderPhoto = () => {
+//     photoBox.innerHTML = '';
+//     if (photoData) {
+//       photoBox.appendChild(el('div', { class: 'avatar-photo avatar-large', style: 'background-image:url(' + photoData + ')' }));
+//     } else {
+//       photoBox.appendChild(el('div', { class: 'avatar-large' }, (document.getElementById('cf-name')?.value || '?')[0].toUpperCase()));
+//     }
+//     const pickBtn = el('button', {
+//       class: 'btn btn-sm btn-ghost', type: 'button', style: 'margin-top:8px',
+//       onclick: async () => {
+//         const pic = await capturePhoto();
+//         if (pic) { photoData = pic; renderPhoto(); }
+//       }
+//     }, photoData ? '✏️ Change photo' : '📷 Add photo');
+//     photoBox.appendChild(pickBtn);
+//     if (photoData) {
+//       photoBox.appendChild(el('button', {
+//         class: 'btn btn-sm btn-ghost', type: 'button', style: 'margin-top:8px;margin-left:8px;color:var(--danger)',
+//         onclick: () => { photoData = null; renderPhoto(); }
+//       }, 'Remove'));
+//     }
+//   };
+//   renderPhoto();
+//   wrap.appendChild(photoBox);
+
+//   wrap.appendChild(el('div', { class: 'field' }, [
+//     el('label', {}, 'Full name'),
+//     el('input', { class: 'input', id: 'cf-name', type: 'text', value: existing?.name || '', autofocus: true,
+//       oninput: () => { if (!photoData) renderPhoto(); } })
+//   ]));
+//   wrap.appendChild(el('div', { class: 'field' }, [
+//     el('label', {}, 'Mobile (10 digits)'),
+//     el('input', { class: 'input', id: 'cf-mobile', type: 'tel', inputmode: 'numeric', maxlength: 10, value: existing?.mobile || '' })
+//   ]));
+//   wrap.appendChild(el('div', { class: 'field' }, [
+//     el('label', {}, 'Address'),
+//     el('input', { class: 'input', id: 'cf-addr', type: 'text', value: existing?.address || '' })
+//   ]));
+//   wrap.appendChild(el('div', { class: 'field' }, [
+//     el('label', {}, 'Quantity per delivery'),
+//     el('select', { class: 'select', id: 'cf-qty' }, [250, 500, 750, 1000, 1500, 2000, 3000].map(q =>
+//       el('option', { value: q, selected: existing?.dailyMl === q }, fmtQty(q))
+//     ))
+//   ]));
+//   wrap.appendChild(el('div', { class: 'field' }, [
+//     el('label', {}, 'Delivery frequency'),
+//     el('select', { class: 'select', id: 'cf-freq' }, [
+//       { v: 'daily',     l: 'Daily (every day)' },
+//       { v: 'alternate', l: 'Alternate days (every 2 days)' },
+//       { v: 'weekly',    l: 'Weekly (once a week)' },
+//       { v: 'monthly',   l: 'Monthly (once a month)' }
+//     ].map(o => el('option', {
+//       value: o.v,
+//       selected: (existing?.frequency || 'daily') === o.v
+//     }, o.l)))
+//   ]));
+//   wrap.appendChild(el('button', { class: 'btn btn-primary btn-block', onclick: () => save() }, isEdit ? 'Save changes' : 'Add customer'));
+//   if (isEdit) {
+//     wrap.appendChild(el('button', {
+//       class: 'btn btn-ghost btn-block', style: 'margin-top:10px',
+//       onclick: async () => {
+//         if (!await confirmDialog('Reset password?',
+//           'Clear ' + existing.name + '\'s password? They\'ll be asked to set a new one on next login.',
+//           'Reset')) return;
+//         existing.password_hash = null;
+//         Store.save();
+//         toast('Password reset — customer will set a new one on next login');
+//       }
+//     }, existing.password_hash ? '🔑 Reset password' : '🔑 No password set'));
+//     wrap.appendChild(el('button', {
+//       class: 'btn btn-danger btn-block', style: 'margin-top:10px',
+//       onclick: async () => {
+//         if (!await confirmDialog('Delete customer?', 'This removes ' + existing.name + ' and their delivery history.', 'Delete')) return;
+//         const cid = existing.id;
+//         const delIds   = Store.data.deliveries.filter(d => d.customerId === cid).map(d => d.id);
+//         const pauseIds = Store.data.pauses.filter(p => p.customerId === cid).map(p => p.id);
+//         const extraIds = Store.data.extraOrders.filter(o => o.customerId === cid).map(o => o.id);
+//         const payIds   = Store.data.payments.filter(p => p.customerId === cid).map(p => p.id);
+//         const notifIds = Store.data.notifications.filter(n => n.userId === cid).map(n => n.id);
+//         const ratingIds = (Store.data.productRatings || []).filter(r => r.customerId === cid).map(r => r.id);
+//         Store.data.users         = Store.data.users.filter(u => u.id !== cid);
+//         Store.data.deliveries    = Store.data.deliveries.filter(d => d.customerId !== cid);
+//         Store.data.pauses        = Store.data.pauses.filter(p => p.customerId !== cid);
+//         Store.data.extraOrders   = Store.data.extraOrders.filter(o => o.customerId !== cid);
+//         Store.data.payments      = Store.data.payments.filter(p => p.customerId !== cid);
+//         Store.data.notifications = Store.data.notifications.filter(n => n.userId !== cid);
+//         Store.data.productRatings = (Store.data.productRatings || []).filter(r => r.customerId !== cid);
+//         Store.save();
+//         await Promise.all([
+//           Store.removeRemote('users', cid),
+//           Store.removeRemote('deliveries', delIds),
+//           Store.removeRemote('pauses', pauseIds),
+//           Store.removeRemote('extra_orders', extraIds),
+//           Store.removeRemote('payments', payIds),
+//           Store.removeRemote('notifications', notifIds),
+//           Store.removeRemote('product_ratings', ratingIds)
+//         ]);
+//         // toast('Customer deleted');
+//         // viewOwner();
+//         if (_ownerSettingsSection === 'customers') {
+//           ownerSettings('customers');
+//         } else {
+//           viewOwner();
+//         }         
+//       }
+//     }, 'Delete customer'));
+//   }
+
+//   function save() {
+//     const name = document.getElementById('cf-name').value.trim();
+//     const mobile = document.getElementById('cf-mobile').value.replace(/\D/g, '');
+//     const addr = document.getElementById('cf-addr').value.trim();
+//     const qty = +document.getElementById('cf-qty').value;
+//     const freq = document.getElementById('cf-freq').value || 'daily';
+//     if (!name) return toast('Enter name', 'error');
+//     if (mobile.length !== 10) return toast('Enter 10-digit mobile', 'error');
+//     // Mobile must be globally unique (one customer record per phone across all dairies)
+//     const conflict = Store.data.users.find(u => u.mobile === mobile && u.id !== existing?.id);
+//     if (conflict) return toast('That mobile is already used by another account', 'error');
+//     const planLabel = ({ daily: 'Daily', alternate: 'Alternate', weekly: 'Weekly', monthly: 'Monthly' })[freq] + ' ' + fmtQty(qty);
+//     if (existing) {
+//       Object.assign(existing, { name, mobile, address: addr, dailyMl: qty, frequency: freq, plan: planLabel, photo: photoData || null });
+//     } else {
+//       // Stamp ownerId so the new customer belongs to the current dairy.
+//       // created_at is the anchor for non-daily frequency calculations — set locally so isDeliveryDue
+//       // works before the next Supabase round-trip.
+//       const ownerId = App.user && App.user.role === 'owner' ? App.user.id : null;
+//       Store.data.users.push({
+//         id: uid(), name, mobile, address: addr, dailyMl: qty, frequency: freq, plan: planLabel,
+//         role: 'customer', photo: photoData || null, ownerId,
+//         created_at: new Date().toISOString()
+//       });
+//     }
+// // Store.save();
+// // toast(existing ? 'Customer updated' : 'Customer added', 'success');
+// // closeModal();
+// // viewOwner();   // ← YAHI problem hai
+
+// // NAYA
+//     Store.save();
+//     toast(existing ? 'Customer updated' : 'Customer added', 'success');
+//     closeModal();
+//     if (_ownerSettingsSection === 'customers') {
+//       ownerSettings('customers');
+//     } else {
+//       viewOwner();
+//     }     
+//   }
+
+//   openModal(isEdit ? 'Edit customer' : 'Add customer', wrap);
+// }
 
 function boyForm(existing) {
   const isEdit = !!existing;
@@ -3151,6 +3371,7 @@ function customerDetail(id) {
   const month = monthKey();
   const bill = customerMonthBill(id, month);
   const wrap = el('div', {});
+
   wrap.appendChild(el('div', { class: 'card', style: 'margin-bottom:14px' }, [
     el('div', { class: 'card-row', style: 'gap:12px' }, [
       avatarFor(c, 56),
@@ -3163,6 +3384,7 @@ function customerDetail(id) {
     ]),
     c.address ? el('div', { class: 'text-muted', style: 'font-size:13px;margin-top:6px' }, c.address) : null
   ]));
+
   wrap.appendChild(el('div', { class: 'stat-grid' }, [
     el('div', { class: 'stat' }, [
       el('div', { class: 'stat-label' }, 'Month deliveries'),
@@ -3173,16 +3395,66 @@ function customerDetail(id) {
       el('div', { class: 'stat-value' }, fmtMoney(bill.total))
     ])
   ]));
+
   wrap.appendChild(el('button', {
     class: 'btn btn-ghost btn-block', style: 'margin-top:8px',
-    onclick: () => { closeModal(); customerForm(c); }
+    onclick: () => {
+      // history.back() trigger kiye bina modal band karo
+      _popHandlers.pop();
+      $modal.hidden = true;
+      document.body.style.overflow = '';
+      clear($modalBody);
+      customerForm(c);
+    }
   }, 'Edit details'));
+
   wrap.appendChild(el('a', {
     class: 'btn btn-primary btn-block', style: 'margin-top:8px',
     href: 'https://wa.me/91' + c.mobile, target: '_blank', rel: 'noopener'
   }, 'WhatsApp'));
+
   openModal(c.name, wrap);
 }
+
+   
+// function customerDetail(id) {
+//   const c = getCustomer(id);
+//   if (!c) return;
+//   const month = monthKey();
+//   const bill = customerMonthBill(id, month);
+//   const wrap = el('div', {});
+//   wrap.appendChild(el('div', { class: 'card', style: 'margin-bottom:14px' }, [
+//     el('div', { class: 'card-row', style: 'gap:12px' }, [
+//       avatarFor(c, 56),
+//       el('div', { style: 'flex:1' }, [
+//         el('div', { style: 'font-weight:700;font-size:16px' }, c.name),
+//         el('div', { class: 'text-muted', style: 'font-size:13px' }, '+91 ' + c.mobile),
+//         presenceBadge(c.id)
+//       ]),
+//       el('span', { class: 'badge info' }, c.plan)
+//     ]),
+//     c.address ? el('div', { class: 'text-muted', style: 'font-size:13px;margin-top:6px' }, c.address) : null
+//   ]));
+//   wrap.appendChild(el('div', { class: 'stat-grid' }, [
+//     el('div', { class: 'stat' }, [
+//       el('div', { class: 'stat-label' }, 'Month deliveries'),
+//       el('div', { class: 'stat-value' }, String(bill.deliveries))
+//     ]),
+//     el('div', { class: 'stat' }, [
+//       el('div', { class: 'stat-label' }, 'Month bill'),
+//       el('div', { class: 'stat-value' }, fmtMoney(bill.total))
+//     ])
+//   ]));
+//   wrap.appendChild(el('button', {
+//     class: 'btn btn-ghost btn-block', style: 'margin-top:8px',
+//     onclick: () => { closeModal(); customerForm(c); }
+//   }, 'Edit details'));
+//   wrap.appendChild(el('a', {
+//     class: 'btn btn-primary btn-block', style: 'margin-top:8px',
+//     href: 'https://wa.me/91' + c.mobile, target: '_blank', rel: 'noopener'
+//   }, 'WhatsApp'));
+//   openModal(c.name, wrap);
+// }
 
 /* ── Owner: today (mark deliveries) ───────────────────────── */
 function ownerToday() {
