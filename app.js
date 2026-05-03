@@ -380,7 +380,9 @@ subscribeRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
 
       const table = payload.table;
-      const record = payload.new || payload.old || {};
+      // const record = payload.new || payload.old || {};
+      const record = payload.new ?? payload.old ?? {};
+       
       const currentOid = currentOwnerId();
       const currentUserId = App && App.user && App.user.id;
 
@@ -389,8 +391,13 @@ subscribeRealtime() {
       // Aur sirf bell badge update karo — full refresh nahi
       if (table === 'notifications') {
         if (!App || !App.user) return;
-        const notifUserId = record.userId || record.user_id || null;
-        if (notifUserId && notifUserId !== currentUserId) return;
+        // const notifUserId = record.userId || record.user_id || null;
+        const notifRecord = payload.new ?? payload.old ?? {};
+        const notifUserId = notifRecord.userId || notifRecord.user_id || null;
+
+        // if (notifUserId && notifUserId !== currentUserId) return;
+        if (notifUserId && notifUserId !== App.user.id) return;
+        if (!notifUserId) return;
 
         clearTimeout(this._notifTimer);
         this._notifTimer = setTimeout(() => {
@@ -456,7 +463,9 @@ subscribeRealtime() {
       if (currentOid) {
         const recordOid = record.ownerId || record.owner_id || null;
         // Agar record ka ownerId hai aur current owner se match nahi karta toh ignore
-        if (recordOid && recordOid !== currentOid) return;
+        // if (recordOid && recordOid !== currentOid) return;
+        if (!recordOid || recordOid !== currentOid) return;
+
       }
 
       // subscription_plans aur dairy_settings global hain
