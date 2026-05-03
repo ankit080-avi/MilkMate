@@ -997,9 +997,21 @@ function restoreSession() {
 }
 
 /* ─── Helpers: data accessors ──────────────────────────────── */
+// function getCustomers() {
+//   return Store.data.users.filter(u => u.role === 'customer');
+// }
+
+// NAYA - yeh lagao
 function getCustomers() {
-  return Store.data.users.filter(u => u.role === 'customer');
-}
+  const ownerId = App.user && App.user.role === 'owner' ? App.user.id
+                : App.user && App.user.ownerId ? App.user.ownerId
+                : null;
+  return Store.data.users.filter(u =>
+    u.role === 'customer' &&
+    (ownerId ? String(u.ownerId) === String(ownerId) : true)
+  );
+}   
+   
 function getCustomer(id) {
   return Store.data.users.find(u => u.id === id);
 }
@@ -2993,8 +3005,13 @@ function customerForm(existing) {
           Store.removeRemote('notifications', notifIds),
           Store.removeRemote('product_ratings', ratingIds)
         ]);
-        toast('Customer deleted');
-        viewOwner();
+        // toast('Customer deleted');
+        // viewOwner();
+        if (_ownerSettingsSection === 'customers') {
+          ownerSettings('customers');
+        } else {
+          viewOwner();
+        }         
       }
     }, 'Delete customer'));
   }
@@ -3024,10 +3041,20 @@ function customerForm(existing) {
         created_at: new Date().toISOString()
       });
     }
+// Store.save();
+// toast(existing ? 'Customer updated' : 'Customer added', 'success');
+// closeModal();
+// viewOwner();   // ← YAHI problem hai
+
+// NAYA
     Store.save();
-toast(existing ? 'Customer updated' : 'Customer added', 'success');
-closeModal();
-viewOwner();   // ← YAHI problem hai
+    toast(existing ? 'Customer updated' : 'Customer added', 'success');
+    closeModal();
+    if (_ownerSettingsSection === 'customers') {
+      ownerSettings('customers');
+    } else {
+      viewOwner();
+    }     
   }
 
   openModal(isEdit ? 'Edit customer' : 'Add customer', wrap);
