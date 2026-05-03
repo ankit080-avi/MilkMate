@@ -3025,9 +3025,15 @@ function customerForm(existing) {
       });
     }
     Store.save();
-    toast(existing ? 'Customer updated' : 'Customer added', 'success');
-    closeModal();
-    viewOwner();
+toast(existing ? 'Customer updated' : 'Customer added', 'success');
+closeModal();
+// Agar settings se aaye hain toh wapas settings customers section pe jao
+if (_ownerSettingsSection === 'customers') {
+  App.customerSettingsView = null; // state reset karo
+  ownerSettings('customers');
+} else {
+  viewOwner();
+}
   }
 
   openModal(isEdit ? 'Edit customer' : 'Add customer', wrap);
