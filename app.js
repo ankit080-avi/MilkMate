@@ -4336,23 +4336,34 @@ else if (_ownerSettingsSection === 'notifications') {
 
 else if (_ownerSettingsSection === 'customers') {
 
-  const customers = Store.data.users.filter(u =>
-    u.role?.trim().toLowerCase() === 'customer' &&
-    String(u.ownerId) === String(App.user.id)
+  const ownerId = String(App.user.id);
+
+  // 🔹 Normalize once (fixes role + owner mismatch bugs)
+  const users = Store.data.users.map(u => ({
+    ...u,
+    roleNorm: (u.role || '').trim().toLowerCase(),
+    ownerNorm: String(u.ownerId || '')
+  }));
+
+  // 🔹 Base filters (STRICT owner scoped)
+  const customers = users.filter(u =>
+    u.roleNorm === 'customer' &&
+    u.ownerNorm === ownerId
   );
 
-  const boys = Store.data.users.filter(u =>
-    u.role?.trim().toLowerCase() === 'delivery_boy' &&
-    String(u.ownerId) === String(App.user.id)
+  const boys = users.filter(u =>
+    u.roleNorm === 'delivery_boy' &&
+    u.ownerNorm === ownerId
   );
 
+  // 🔹 View state
   if (!App.customerSettingsView) {
     App.customerSettingsView = { search: '', boy: 'all' };
   }
 
   const v = App.customerSettingsView;
 
-  // 🔍 Search input
+  // 🔍 Search
   const searchInput = el('input', {
     class: 'input',
     type: 'search',
@@ -4364,7 +4375,7 @@ else if (_ownerSettingsSection === 'customers') {
     }
   });
 
-  // 📌 Filter dropdown
+  // 📌 Boy filter
   const boyFilter = el('select', {
     class: 'select',
     onchange: (e) => {
@@ -4390,30 +4401,28 @@ else if (_ownerSettingsSection === 'customers') {
     }, '+ Add')
   ]));
 
-  // Search + filter row
+  // Search + filter UI
   page.appendChild(el('div', { class: 'row gap-sm', style: 'margin-bottom:12px' }, [
     searchInput,
     boyFilter
   ]));
 
-  const q = v.search.toLowerCase().trim();
+  // 🔥 Filtering logic (clean + fast)
+  const q = (v.search || '').toLowerCase().trim();
 
-  // 🔥 SAFE FILTER (FIXED LOGIC)
-  let filtered = customers.filter(c => {
-
+  const filtered = customers.filter(c => {
     const name = (c.name || '').toLowerCase();
     const mobile = (c.mobile || '').toString();
 
-    const matchesSearch =
-      !q ||
-      name.includes(q) ||
-      mobile.includes(q);
+    if (q && !name.includes(q) && !mobile.includes(q)) {
+      return false;
+    }
 
-    const matchesBoy =
-      v.boy === 'all' ||
-      String(c.assignedBoyId || '') === String(v.boy);
+    if (v.boy !== 'all' && String(c.assignedBoyId || '') !== String(v.boy)) {
+      return false;
+    }
 
-    return matchesSearch && matchesBoy;
+    return true;
   });
 
   // 📊 Stats
@@ -4500,7 +4509,6 @@ else if (_ownerSettingsSection === 'customers') {
 
         ]),
 
-        // click overlay
         el('div', {
           style: 'position:absolute;inset:0',
           onclick: () => customerForm(c)
@@ -4512,7 +4520,6 @@ else if (_ownerSettingsSection === 'customers') {
     page.appendChild(list);
   }
 }   
-   
    // else if (_ownerSettingsSection === 'customers') {
 
 //   page.appendChild(el('div', { class: 'section-head' }, [
