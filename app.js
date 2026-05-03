@@ -380,24 +380,17 @@ subscribeRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
 
       const table = payload.table;
-      // const record = payload.new || payload.old || {};
       const record = payload.new ?? payload.old ?? {};
-       
       const currentOid = currentOwnerId();
       const currentUserId = App && App.user && App.user.id;
 
       // ── NOTIFICATIONS TABLE ──
-      // Sirf apne userId ki notification pe react karo
-      // Aur sirf bell badge update karo — full refresh nahi
       if (table === 'notifications') {
         if (!App || !App.user) return;
-        // const notifUserId = record.userId || record.user_id || null;
         const notifRecord = payload.new ?? payload.old ?? {};
         const notifUserId = notifRecord.userId || notifRecord.user_id || null;
-
-        // if (notifUserId && notifUserId !== currentUserId) return;
-        if (notifUserId && notifUserId !== App.user.id) return;
-        if (!notifUserId) return;
+        // Strict: must match current user exactly, null also blocked
+        if (!notifUserId || notifUserId !== App.user.id) return;
 
         clearTimeout(this._notifTimer);
         this._notifTimer = setTimeout(() => {
@@ -413,7 +406,6 @@ subscribeRealtime() {
                 date: n.date, read: !!n.read, ownerId: n.ownerId || null
               }));
               Store.cacheLocally();
-              // Sirf bell badge DOM update karo, navigate nahi
               document.querySelectorAll('.bell-wrap').forEach(wrap => {
                 const cnt = unreadCount(App.user.id);
                 let badge = wrap.querySelector('.bell-badge');
@@ -434,19 +426,23 @@ subscribeRealtime() {
       }
 
       // ── USERS TABLE ──
-      // Sirf apni dairy ke users pe react karo
       if (table === 'users') {
         const recordOid = record.ownerId || null;
-        const recordId = record.id || null;
-        // Ignore karo agar:
-        // - Record kisi aur owner ka hai
-        // - Record admin ka hai (u_admin)
-        // - Record current user hi hai (apna change apne aap trigger hoga)
-        if (recordId === 'u_admin') return;
-        if (record.role === 'admin') return;
-        if (currentOid && recordOid && recordOid !== currentOid) return;
+        const recordId  = record.id || null;
+        const recordRole = record.role || null;
+
+        // Always ignore admin rows
+        if (recordId === 'u_admin' || recordRole === 'admin') return;
+        // Always ignore changes to our own row (we triggered it)
         if (recordId === currentUserId) return;
-        // Apni dairy ka user change — sirf data update karo
+
+        // KEY FIX: if we have a currentOid (owner/customer/boy is logged in)
+        // then ONLY process records that belong to OUR dairy.
+        // recordOid null = not yet stamped or orphan = treat as NOT our dairy → ignore
+        if (currentOid) {
+          if (!recordOid || recordOid !== currentOid) return;
+        }
+
         clearTimeout(this._refetchTimer);
         this._refetchTimer = setTimeout(() => {
           this.loadFromRemote().then(() => {
@@ -458,20 +454,8 @@ subscribeRealtime() {
         return;
       }
 
-      // ── BAAKI SAARI TABLES ──
-      // Owner scope filter — sirf apne dairy ka change process karo
-      if (currentOid) {
-        const recordOid = record.ownerId || record.owner_id || null;
-        // Agar record ka ownerId hai aur current owner se match nahi karta toh ignore
-        // if (recordOid && recordOid !== currentOid) return;
-        if (!recordOid || recordOid !== currentOid) return;
-
-      }
-
-      // subscription_plans aur dairy_settings global hain
-      // lekin inhe bhi unnecessarily refresh nahi karna
+      // ── SUBSCRIPTION_PLANS — global, silent update only ──
       if (table === 'subscription_plans') {
-        // Plans global hain — sirf data update karo silently
         clearTimeout(this._plansTimer);
         this._plansTimer = setTimeout(() => {
           sb.from('subscription_plans').select('*').then(({ data }) => {
@@ -488,10 +472,13 @@ subscribeRealtime() {
         return;
       }
 
-      // dairy_settings — sirf apna settings update karo
+      // ── DAIRY_SETTINGS — special: allow u_admin row through for everyone ──
       if (table === 'dairy_settings') {
         const recordOid = record.ownerId || null;
+        // Only refresh if it's our own settings or the admin's settings (used for UPI/plans)
         if (currentOid && recordOid && recordOid !== currentOid && recordOid !== 'u_admin') return;
+        // If currentOid exists and recordOid is null → ignore (orphan row)
+        if (currentOid && !recordOid) return;
         clearTimeout(this._settingsTimer);
         this._settingsTimer = setTimeout(() => {
           this.loadFromRemote().then(() => {
@@ -503,8 +490,15 @@ subscribeRealtime() {
         return;
       }
 
-      // Baki tables: deliveries, pauses, extra_orders, payments, etc.
-      // Yeh owner-scoped hain — upar filter se pass ho ke aaye hain
+      // ── ALL OTHER TABLES (deliveries, pauses, extra_orders, payments, etc.) ──
+      // These are strictly owner-scoped.
+      if (currentOid) {
+        const recordOid = record.ownerId || record.owner_id || null;
+        // FIX: null ownerId = orphan/unstamped = NOT our dairy → block
+        if (!recordOid || recordOid !== currentOid) return;
+      }
+
+      // Passed all filters — this change belongs to our dairy
       clearTimeout(this._refetchTimer);
       this._refetchTimer = setTimeout(() => {
         this.loadFromRemote().then(() => {
@@ -515,8 +509,9 @@ subscribeRealtime() {
       }, 400);
     })
     .subscribe();
-},  
-  // Realtime Presence — tracks which users currently have the app open.
+},
+   
+   // Realtime Presence — tracks which users currently have the app open.
   // Owner uses Presence.has(userId) to render the green online dot.
   Presence: {
     online: new Set(),
