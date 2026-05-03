@@ -4106,6 +4106,78 @@ function ownerSettings(target) {
     page.appendChild(gen);
   }
 
+else if (_ownerSettingsSection === 'upisetting') {
+  const gen = el('div', { class: 'card' });
+
+  // UPI ID
+  gen.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'UPI ID'),
+    el('input', {
+      class: 'input',
+      id: 'st-upi',
+      type: 'text',
+      placeholder: 'example@upi',
+      value: s.upiId || ''
+    })
+  ]));
+
+  // UPI Name
+  gen.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'UPI Display Name'),
+    el('input', {
+      class: 'input',
+      id: 'st-upiname',
+      type: 'text',
+      placeholder: 'MilkMate Dairy',
+      value: s.upiName || ''
+    })
+  ]));
+
+  // WhatsApp
+  gen.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'WhatsApp Number'),
+    el('input', {
+      class: 'input',
+      id: 'st-wa',
+      type: 'tel',
+      placeholder: '919876543210',
+      value: s.ownerWhatsApp || ''
+    })
+  ]));
+
+  // Enable/Disable UPI
+  gen.appendChild(el('div', { class: 'field' }, [
+    el('label', {}, 'Enable UPI Payments'),
+    el('input', {
+      type: 'checkbox',
+      id: 'st-upi-enabled',
+      checked: s.upiEnabled ?? true
+    })
+  ]));
+
+  // Save Button
+  gen.appendChild(el('button', {
+    class: 'btn btn-primary btn-block',
+    onclick: () => {
+      const upiId = document.getElementById('st-upi').value.trim();
+
+      if (upiId && !upiId.includes('@')) {
+        return toast('Invalid UPI ID', 'error');
+      }
+
+      s.upiId = upiId;
+      s.upiName = document.getElementById('st-upiname').value.trim();
+      s.ownerWhatsApp = document.getElementById('st-wa').value.replace(/\D/g, '');
+      s.upiEnabled = document.getElementById('st-upi-enabled').checked;
+
+      Store.save();
+      toast('Payment settings saved', 'success');
+    }
+  }, 'Save'));
+
+  page.appendChild(gen);
+}
+     
   // ─── Delivery boys ───────────────────────────────────────
   else if (_ownerSettingsSection === 'boys') {
     page.appendChild(el('div', { class: 'section-head' }, [
