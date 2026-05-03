@@ -4336,18 +4336,20 @@ else if (_ownerSettingsSection === 'notifications') {
 
 else if (_ownerSettingsSection === 'customers') {
 
-  const allCustomers = Store.data.users.filter(
-    u => u.role === 'customer' && u.ownerId === App.user.id
+  const customers = Store.data.users.filter(u =>
+    u.role?.trim().toLowerCase() === 'customer' &&
+    String(u.ownerId) === String(App.user.id)
   );
 
-  const boys = Store.data.users.filter(
-    u => u.role === 'delivery_boy' && u.ownerId === App.user.id
+  const boys = Store.data.users.filter(u =>
+    u.role?.trim().toLowerCase() === 'delivery_boy' &&
+    String(u.ownerId) === String(App.user.id)
   );
 
-  // State
   if (!App.customerSettingsView) {
     App.customerSettingsView = { search: '', boy: 'all' };
   }
+
   const v = App.customerSettingsView;
 
   // 🔍 Search input
@@ -4372,37 +4374,59 @@ else if (_ownerSettingsSection === 'customers') {
   }, [
     el('option', { value: 'all' }, 'All Boys'),
     ...boys.map(b =>
-      el('option', { value: b.id, selected: v.boy === b.id }, b.name)
+      el('option', {
+        value: b.id,
+        selected: String(v.boy) === String(b.id)
+      }, b.name)
     )
   ]);
 
   // Header
   page.appendChild(el('div', { class: 'section-head' }, [
     el('h2', {}, 'Customers'),
-    el('button', { class: 'link-btn', onclick: () => customerForm(null) }, '+ Add')
+    el('button', {
+      class: 'link-btn',
+      onclick: () => customerForm(null)
+    }, '+ Add')
   ]));
 
-  // Search + Filter row
+  // Search + filter row
   page.appendChild(el('div', { class: 'row gap-sm', style: 'margin-bottom:12px' }, [
     searchInput,
     boyFilter
   ]));
 
-  // Apply search + filter
   const q = v.search.toLowerCase().trim();
-  let filtered = allCustomers.filter(c =>
-    (!q || c.name.toLowerCase().includes(q) || c.mobile.includes(q)) &&
-    (v.boy === 'all' || c.assignedBoyId === v.boy)
-  );
+
+  // 🔥 SAFE FILTER (FIXED LOGIC)
+  let filtered = customers.filter(c => {
+
+    const name = (c.name || '').toLowerCase();
+    const mobile = (c.mobile || '').toString();
+
+    const matchesSearch =
+      !q ||
+      name.includes(q) ||
+      mobile.includes(q);
+
+    const matchesBoy =
+      v.boy === 'all' ||
+      String(c.assignedBoyId || '') === String(v.boy);
+
+    return matchesSearch && matchesBoy;
+  });
 
   // 📊 Stats
   let totalDue = 0;
   filtered.forEach(c => {
     const b = customerMonthBill(c.id, monthKey());
-    totalDue += b.due;
+    totalDue += (b?.due || 0);
   });
 
-  page.appendChild(el('div', { class: 'card', style: 'margin-bottom:12px;display:flex;justify-content:space-between' }, [
+  page.appendChild(el('div', {
+    class: 'card',
+    style: 'margin-bottom:12px;display:flex;justify-content:space-between'
+  }, [
     el('div', {}, [
       el('div', { class: 'text-muted', style: 'font-size:12px' }, 'Total Customers'),
       el('div', { class: 'li-title' }, filtered.length)
@@ -4413,9 +4437,13 @@ else if (_ownerSettingsSection === 'customers') {
     ])
   ]));
 
-  // List
+  // Empty state
   if (filtered.length === 0) {
-    page.appendChild(emptyState('🔍', 'No customers found', 'Try changing search or filter.'));
+    page.appendChild(emptyState(
+      '🔍',
+      'No customers found',
+      'Try changing search or filter.'
+    ));
   } else {
 
     const list = el('div', { class: 'list' });
@@ -4426,7 +4454,8 @@ else if (_ownerSettingsSection === 'customers') {
       const boy = boys.find(b => b.id === c.assignedBoyId);
 
       list.appendChild(el('div', {
-        class: 'list-item'
+        class: 'list-item is-clickable',
+        onclick: () => customerForm(c)
       }, [
 
         avatarFor(c),
@@ -4442,31 +4471,36 @@ else if (_ownerSettingsSection === 'customers') {
 
         el('div', { class: 'li-aside', style: 'text-align:right' }, [
 
-          bill.due > 0
+          bill?.due > 0
             ? el('div', {
                 class: 'amount',
                 style: 'color:var(--warning);font-size:13px'
-              }, fmtMoney(bill.due))
+              }, fmtMoney(bill.due) + ' due')
             : el('div', {
                 style: 'color:var(--text-muted);font-size:12px'
               }, 'Settled'),
 
-          // 📲 WhatsApp button
+          // 📲 WhatsApp
           el('button', {
             class: 'icon-btn',
             style: 'margin-top:6px',
             onclick: (e) => {
               e.stopPropagation();
+
               const msg = encodeURIComponent(
-                `Hi ${c.name}, your milk bill is ${fmtMoney(bill.due)}.`
+                `Hi ${c.name}, your milk bill is ${fmtMoney(bill?.due || 0)}.`
               );
-              window.open(`https://wa.me/91${c.mobile}?text=${msg}`, '_blank');
+
+              window.open(
+                `https://wa.me/91${c.mobile}?text=${msg}`,
+                '_blank'
+              );
             }
           }, '📲')
 
         ]),
 
-        // Click to edit
+        // click overlay
         el('div', {
           style: 'position:absolute;inset:0',
           onclick: () => customerForm(c)
@@ -4478,7 +4512,6 @@ else if (_ownerSettingsSection === 'customers') {
     page.appendChild(list);
   }
 }   
-   
    
    // else if (_ownerSettingsSection === 'customers') {
 
