@@ -1154,22 +1154,55 @@ const $modalBody = document.getElementById('modalBody');
 const $toastHost = document.getElementById('toastHost');
 const $waBtn = document.getElementById('waBtn');
 
+// function el(tag, attrs = {}, children = []) {
+//   const e = document.createElement(tag);
+//   for (const k in attrs) {
+//     if (k === 'class') e.className = attrs[k];
+//     else if (k === 'html') e.innerHTML = attrs[k];
+//     else if (k.startsWith('on') && typeof attrs[k] === 'function') e.addEventListener(k.slice(2), attrs[k]);
+//     else if (k === 'dataset') Object.assign(e.dataset, attrs[k]);
+//     else if (attrs[k] === true) e.setAttribute(k, '');
+//     else if (attrs[k] !== false && attrs[k] != null) e.setAttribute(k, attrs[k]);
+//   }
+//   for (const c of [].concat(children)) {
+//     if (c == null || c === false) continue;
+//     e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+//   }
+//   return e;
+// }
+
 function el(tag, attrs = {}, children = []) {
   const e = document.createElement(tag);
+
   for (const k in attrs) {
     if (k === 'class') e.className = attrs[k];
     else if (k === 'html') e.innerHTML = attrs[k];
-    else if (k.startsWith('on') && typeof attrs[k] === 'function') e.addEventListener(k.slice(2), attrs[k]);
-    else if (k === 'dataset') Object.assign(e.dataset, attrs[k]);
-    else if (attrs[k] === true) e.setAttribute(k, '');
-    else if (attrs[k] !== false && attrs[k] != null) e.setAttribute(k, attrs[k]);
+    else if (k.startsWith('on') && typeof attrs[k] === 'function') {
+      e.addEventListener(k.slice(2), attrs[k]);
+    }
+    else if (attrs[k] !== false && attrs[k] != null) {
+      e.setAttribute(k, attrs[k]);
+    }
   }
-  for (const c of [].concat(children)) {
-    if (c == null || c === false) continue;
-    e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
-  }
+
+  [].concat(children).forEach(c => {
+    if (c == null || c === false) return;
+
+    if (typeof c === 'string' || typeof c === 'number') {
+      e.appendChild(document.createTextNode(String(c)));
+    }
+    else if (c instanceof Node) {
+      e.appendChild(c);
+    }
+    else {
+      console.warn('Invalid child passed to el():', c);
+    }
+  });
+
   return e;
-}
+}   
+   
+   
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
 function toast(msg, kind = '') {
