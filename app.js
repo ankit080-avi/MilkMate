@@ -4371,185 +4371,157 @@ else if (_ownerSettingsSection === 'customers') {
 
   const ownerId = App.user?.id;
 
-  const customers = (Store.data.users || []).filter(u =>
-    u.role === 'customer' &&
-    String(u.ownerId) === String(ownerId)
+  const allCustomers = (Store.data.users || []).filter(u =>
+    u.role === 'customer' && String(u.ownerId) === String(ownerId)
   );
 
   const boys = (Store.data.users || []).filter(u =>
-    u.role === 'delivery_boy' &&
-    String(u.ownerId) === String(ownerId)
+    u.role === 'delivery_boy' && String(u.ownerId) === String(ownerId)
   );
 
-  // state
-  if (!App.customerSettingsView) {
-    App.customerSettingsView = { search: '', boy: 'all' };
-  }
-
+  // Always reset state on entry
+  App.customerSettingsView = App.customerSettingsView || { search: '', boy: 'all' };
   const v = App.customerSettingsView;
 
-  // 🔍 Search
+  // Header
+  page.appendChild(el('div', { class: 'section-head' }, [
+    el('h2', {}, 'Customers (' + allCustomers.length + ')'),
+    el('button', { class: 'link-btn', onclick: () => customerForm(null) }, '+ Add')
+  ]));
+
+  // Search input
   const searchInput = el('input', {
     class: 'input',
     type: 'search',
-    placeholder: '🔍 Search customer...',
+    placeholder: '🔍 Search name or mobile...',
     value: v.search,
     oninput: (e) => {
       v.search = e.target.value;
-      renderOwnerSettings();
+      ownerSettings('customers');
     }
   });
 
-  // 📌 Filter
+  // Boy filter dropdown
   const boyFilter = el('select', {
     class: 'select',
     onchange: (e) => {
       v.boy = e.target.value;
-      renderOwnerSettings();
+      ownerSettings('customers');
     }
   }, [
     el('option', { value: 'all' }, 'All Boys'),
     ...boys.map(b =>
-      el('option', {
-        value: b.id,
-        selected: String(v.boy) === String(b.id)
-      }, b.name)
+      el('option', { value: b.id, selected: String(v.boy) === String(b.id) }, b.name)
     )
   ]);
 
-  // Header
-  page.appendChild(el('div', { class: 'section-head' }, [
-    el('h2', {}, 'Customers'),
-    el('button', {
-      class: 'link-btn',
-      onclick: () => customerForm(null)
-    }, '+ Add')
-  ]));
-
-  // controls
   page.appendChild(el('div', { class: 'row gap-sm', style: 'margin-bottom:12px' }, [
     searchInput,
     boyFilter
   ]));
 
+  // Filter logic
   const q = v.search.toLowerCase().trim();
+  const qDigits = q.replace(/\D/g, '');
 
-  // 🔥 SAFE FILTER (FIXED LOGIC)
-  let filtered = customers.filter(c => {
+  const filtered = allCustomers.filter(c => {
+    const matchesSearch = !q ||
+      (c.name || '').toLowerCase().includes(q) ||
+      (qDigits && (c.mobile || '').includes(qDigits));
 
-    const name = (c.name || '').toLowerCase();
-    const mobile = (c.mobile || '').toString();
-
-    const matchesSearch =
-      !q ||
-      name.includes(q) ||
-      mobile.includes(q);
-
-    const matchesBoy =
-      v.boy === 'all' ||
+    const matchesBoy = v.boy === 'all' ||
       String(c.assignedBoyId || '') === String(v.boy);
 
     return matchesSearch && matchesBoy;
   });
 
-  // 📊 Stats
+  // Stats card
+  const month = monthKey();
   let totalDue = 0;
   filtered.forEach(c => {
-    const b = customerMonthBill(c.id, monthKey());
+    const b = customerMonthBill(c.id, month);
     totalDue += (b?.due || 0);
   });
 
-  page.appendChild(el('div', {
-    class: 'card',
-    style: 'margin-bottom:12px;display:flex;justify-content:space-between'
-  }, [
-    el('div', {}, [
-      el('div', { class: 'text-muted', style: 'font-size:12px' }, 'Total Customers'),
-      el('div', { class: 'li-title' }, filtered.length)
+  page.appendChild(el('div', { class: 'stat-grid', style: 'margin-bottom:14px' }, [
+    el('div', { class: 'stat' }, [
+      el('div', { class: 'stat-label' }, 'Showing'),
+      el('div', { class: 'stat-value' }, filtered.length + ' / ' + allCustomers.length)
     ]),
-    el('div', { style: 'text-align:right' }, [
-      el('div', { class: 'text-muted', style: 'font-size:12px' }, 'Total Due'),
-      el('div', { class: 'amount', style: 'color:var(--warning)' }, fmtMoney(totalDue))
+    el('div', { class: 'stat' }, [
+      el('div', { class: 'stat-label' }, 'Total due'),
+      el('div', { class: 'stat-value', style: totalDue > 0 ? 'color:var(--warning)' : '' },
+        fmtMoney(totalDue))
     ])
   ]));
 
   // Empty state
   if (filtered.length === 0) {
     page.appendChild(emptyState(
-      '🔍',
-      'No customers found',
-      'Try search or filter'
+      q ? '🔍' : '👥',
+      q ? 'No matches' : 'No customers yet',
+      q ? 'Try a different search or filter.' : 'Tap + to add your first customer.'
     ));
+    $view.appendChild(page);
     return;
   }
 
-  // List
+  // Customer list
   const list = el('div', { class: 'list' });
 
   filtered.forEach(c => {
-
-    const bill = customerMonthBill(c.id, monthKey());
+    const bill = customerMonthBill(c.id, month);
     const boy = boys.find(b => String(b.id) === String(c.assignedBoyId));
+    const isOnline = Store.Presence && Store.Presence.has(c.id);
+
+    const avatarWrap = el('div', {
+      class: 'avatar-online-wrap' + (isOnline ? ' is-online' : ''),
+      'data-user-id': c.id
+    }, [avatarFor(c)]);
 
     list.appendChild(el('div', {
       class: 'list-item is-clickable',
       onclick: () => customerForm(c)
     }, [
-
-      avatarFor(c),
+      avatarWrap,
 
       el('div', { class: 'li-body' }, [
         el('div', { class: 'li-title' }, c.name),
         el('div', { class: 'li-sub' },
           '+91 ' + c.mobile +
           ' · ' + fmtQty(c.dailyMl || 0) +
-          (boy ? ' · ' + boy.name : '')
+          (boy ? ' · ' + boy.name : '') +
+          (c.address ? ' · ' + c.address.slice(0, 20) + (c.address.length > 20 ? '…' : '') : '')
         )
       ]),
 
-      el('div', { class: 'li-aside', style: 'text-align:right' }, [
-
+      el('div', { class: 'li-aside', style: 'text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px' }, [
         bill?.due > 0
-          ? el('div', {
-              class: 'amount',
-              style: 'color:var(--warning);font-size:13px'
-            }, fmtMoney(bill.due))
-          : el('div', {
-              style: 'color:var(--text-muted);font-size:12px'
-            }, 'Settled'),
+          ? el('div', { class: 'amount', style: 'color:var(--warning);font-size:13px' },
+              fmtMoney(bill.due) + ' due')
+          : el('div', { style: 'color:var(--text-muted);font-size:12px' }, 'Settled'),
 
-        // 📲 WhatsApp
         el('button', {
-          class: 'icon-btn',
-          style: 'margin-top:6px',
+          class: 'btn btn-sm btn-ghost',
+          style: 'padding:2px 8px;font-size:12px',
           onclick: (e) => {
             e.stopPropagation();
-
             const msg = encodeURIComponent(
-              `Hi ${c.name}, your milk bill is ${fmtMoney(bill?.due || 0)}.`
+              'Hi ' + c.name + ', aapka is mahine ka milk bill ' + fmtMoney(bill?.total || 0) +
+              ' hai' + (bill?.due > 0 ? ', jisme se ' + fmtMoney(bill.due) + ' baaki hai.' : ' — settled hai.')
             );
-
-            window.open(
-              `https://wa.me/91${c.mobile}?text=${msg}`,
-              '_blank'
-            );
+            window.open('https://wa.me/91' + c.mobile + '?text=' + msg, '_blank');
           }
-        }, '📲')
-
-      ]),
-
-      // overlay click
-      el('div', {
-        style: 'position:absolute;inset:0',
-        onclick: () => customerForm(c)
-      })
-
+        }, '💬 WA')
+      ])
     ]));
   });
 
   page.appendChild(list);
-}   
-   // else if (_ownerSettingsSection === 'customers') {
+}
+
+   
+// else if (_ownerSettingsSection === 'customers') {
 
 //   page.appendChild(el('div', { class: 'section-head' }, [
 //     el('h2', {}, 'Customers'),
