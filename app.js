@@ -4333,33 +4333,100 @@ else if (_ownerSettingsSection === 'notifications') {
     ]));
   }
 ////Cutomers
+
 else if (_ownerSettingsSection === 'customers') {
 
+  const allCustomers = Store.data.users.filter(
+    u => u.role === 'customer' && u.ownerId === App.user.id
+  );
+
+  const boys = Store.data.users.filter(
+    u => u.role === 'delivery_boy' && u.ownerId === App.user.id
+  );
+
+  // State
+  if (!App.customerSettingsView) {
+    App.customerSettingsView = { search: '', boy: 'all' };
+  }
+  const v = App.customerSettingsView;
+
+  // 🔍 Search input
+  const searchInput = el('input', {
+    class: 'input',
+    type: 'search',
+    placeholder: '🔍 Search customer...',
+    value: v.search,
+    oninput: (e) => {
+      v.search = e.target.value;
+      renderOwnerSettings();
+    }
+  });
+
+  // 📌 Filter dropdown
+  const boyFilter = el('select', {
+    class: 'select',
+    onchange: (e) => {
+      v.boy = e.target.value;
+      renderOwnerSettings();
+    }
+  }, [
+    el('option', { value: 'all' }, 'All Boys'),
+    ...boys.map(b =>
+      el('option', { value: b.id, selected: v.boy === b.id }, b.name)
+    )
+  ]);
+
+  // Header
   page.appendChild(el('div', { class: 'section-head' }, [
     el('h2', {}, 'Customers'),
     el('button', { class: 'link-btn', onclick: () => customerForm(null) }, '+ Add')
   ]));
 
-  const customers = Store.data.users.filter(
-    u => u.role === 'customer' && u.ownerId === App.user.id
+  // Search + Filter row
+  page.appendChild(el('div', { class: 'row gap-sm', style: 'margin-bottom:12px' }, [
+    searchInput,
+    boyFilter
+  ]));
+
+  // Apply search + filter
+  const q = v.search.toLowerCase().trim();
+  let filtered = allCustomers.filter(c =>
+    (!q || c.name.toLowerCase().includes(q) || c.mobile.includes(q)) &&
+    (v.boy === 'all' || c.assignedBoyId === v.boy)
   );
 
-  if (customers.length === 0) {
-    page.appendChild(el('div', {
-      class: 'card text-muted',
-      style: 'font-size:13px'
-    }, 'No customers yet. Add one to start managing deliveries.'));
+  // 📊 Stats
+  let totalDue = 0;
+  filtered.forEach(c => {
+    const b = customerMonthBill(c.id, monthKey());
+    totalDue += b.due;
+  });
+
+  page.appendChild(el('div', { class: 'card', style: 'margin-bottom:12px;display:flex;justify-content:space-between' }, [
+    el('div', {}, [
+      el('div', { class: 'text-muted', style: 'font-size:12px' }, 'Total Customers'),
+      el('div', { class: 'li-title' }, filtered.length)
+    ]),
+    el('div', { style: 'text-align:right' }, [
+      el('div', { class: 'text-muted', style: 'font-size:12px' }, 'Total Due'),
+      el('div', { class: 'amount', style: 'color:var(--warning)' }, fmtMoney(totalDue))
+    ])
+  ]));
+
+  // List
+  if (filtered.length === 0) {
+    page.appendChild(emptyState('🔍', 'No customers found', 'Try changing search or filter.'));
   } else {
 
     const list = el('div', { class: 'list' });
 
-    customers.forEach(c => {
+    filtered.forEach(c => {
 
       const bill = customerMonthBill(c.id, monthKey());
+      const boy = boys.find(b => b.id === c.assignedBoyId);
 
       list.appendChild(el('div', {
-        class: 'list-item is-clickable',
-        onclick: () => customerForm(c)
+        class: 'list-item'
       }, [
 
         avatarFor(c),
@@ -4367,27 +4434,107 @@ else if (_ownerSettingsSection === 'customers') {
         el('div', { class: 'li-body' }, [
           el('div', { class: 'li-title' }, c.name),
           el('div', { class: 'li-sub' },
-            '+91 ' + c.mobile + ' · ' + fmtQty(c.dailyMl)
+            '+91 ' + c.mobile +
+            ' · ' + fmtQty(c.dailyMl) +
+            (boy ? ' · ' + boy.name : '')
           )
         ]),
 
         el('div', { class: 'li-aside', style: 'text-align:right' }, [
+
           bill.due > 0
             ? el('div', {
                 class: 'amount',
                 style: 'color:var(--warning);font-size:13px'
-              }, fmtMoney(bill.due) + ' due')
+              }, fmtMoney(bill.due))
             : el('div', {
                 style: 'color:var(--text-muted);font-size:12px'
-              }, 'Settled')
-        ])
+              }, 'Settled'),
+
+          // 📲 WhatsApp button
+          el('button', {
+            class: 'icon-btn',
+            style: 'margin-top:6px',
+            onclick: (e) => {
+              e.stopPropagation();
+              const msg = encodeURIComponent(
+                `Hi ${c.name}, your milk bill is ${fmtMoney(bill.due)}.`
+              );
+              window.open(`https://wa.me/91${c.mobile}?text=${msg}`, '_blank');
+            }
+          }, '📲')
+
+        ]),
+
+        // Click to edit
+        el('div', {
+          style: 'position:absolute;inset:0',
+          onclick: () => customerForm(c)
+        })
 
       ]));
     });
 
     page.appendChild(list);
   }
-}
+}   
+   
+   
+   // else if (_ownerSettingsSection === 'customers') {
+
+//   page.appendChild(el('div', { class: 'section-head' }, [
+//     el('h2', {}, 'Customers'),
+//     el('button', { class: 'link-btn', onclick: () => customerForm(null) }, '+ Add')
+//   ]));
+
+//   const customers = Store.data.users.filter(
+//     u => u.role === 'customer' && u.ownerId === App.user.id
+//   );
+
+//   if (customers.length === 0) {
+//     page.appendChild(el('div', {
+//       class: 'card text-muted',
+//       style: 'font-size:13px'
+//     }, 'No customers yet. Add one to start managing deliveries.'));
+//   } else {
+
+//     const list = el('div', { class: 'list' });
+
+//     customers.forEach(c => {
+
+//       const bill = customerMonthBill(c.id, monthKey());
+
+//       list.appendChild(el('div', {
+//         class: 'list-item is-clickable',
+//         onclick: () => customerForm(c)
+//       }, [
+
+//         avatarFor(c),
+
+//         el('div', { class: 'li-body' }, [
+//           el('div', { class: 'li-title' }, c.name),
+//           el('div', { class: 'li-sub' },
+//             '+91 ' + c.mobile + ' · ' + fmtQty(c.dailyMl)
+//           )
+//         ]),
+
+//         el('div', { class: 'li-aside', style: 'text-align:right' }, [
+//           bill.due > 0
+//             ? el('div', {
+//                 class: 'amount',
+//                 style: 'color:var(--warning);font-size:13px'
+//               }, fmtMoney(bill.due) + ' due')
+//             : el('div', {
+//                 style: 'color:var(--text-muted);font-size:12px'
+//               }, 'Settled')
+//         ])
+
+//       ]));
+//     });
+
+//     page.appendChild(list);
+//   }
+// }
      
   else if (_ownerSettingsSection === 'lang') {
     [
