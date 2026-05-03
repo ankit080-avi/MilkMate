@@ -3895,6 +3895,7 @@ function ownerSettings(target) {
     { key: 'profile',  icon: '👤', title: 'My Profile',         subtitle: 'Photo, name, mobile' },
     { key: 'business', icon: '🏪', title: 'Business Info',      subtitle: 'Used in bills & PDF' },
     { key: 'pricing',  icon: '💰', title: 'Pricing & Payments', subtitle: 'Per-litre, UPI, WhatsApp' },
+    { key: 'upisetting',  icon: '💰', title: 'Upi & Payment Settings', subtitle: 'Per-litre, UPI, WhatsApp' },
     { key: 'boys',     icon: '🚴', title: 'Delivery Boys',      subtitle: 'Manage your delivery team' },
     { key: 'holidays', icon: '🗓', title: 'Holidays',           subtitle: "Days you don't deliver" },
     { key: 'products', icon: '🥛', title: 'Products (Extras)',  subtitle: 'Paneer, curd, ghee, etc.' },
