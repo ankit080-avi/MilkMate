@@ -3891,17 +3891,32 @@ function ownerSettings(target) {
     }
   };
 
-  const sections = [
-    { key: 'profile',  icon: '👤', title: 'My Profile',         subtitle: 'Photo, name, mobile' },
-    { key: 'business', icon: '🏪', title: 'Business Info',      subtitle: 'Used in bills & PDF' },
-    { key: 'pricing',  icon: '💰', title: 'Pricing & Payments', subtitle: 'Per-litre, UPI, WhatsApp' },
-    { key: 'upisetting',  icon: '💰', title: 'Upi & Payment Settings', subtitle: 'Per-litre, UPI, WhatsApp' },
-    { key: 'boys',     icon: '🚴', title: 'Delivery Boys',      subtitle: 'Manage your delivery team' },
-    { key: 'holidays', icon: '🗓', title: 'Holidays',           subtitle: "Days you don't deliver" },
-    { key: 'products', icon: '🥛', title: 'Products (Extras)',  subtitle: 'Paneer, curd, ghee, etc.' },
-    { key: 'theme',    icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
-    { key: 'lang',     icon: '🌐', title: 'Language',           subtitle: 'English, Hindi, Marathi' }
-  ];
+  // const sections = [
+  //   { key: 'profile',  icon: '👤', title: 'My Profile',         subtitle: 'Photo, name, mobile' },
+  //   { key: 'business', icon: '🏪', title: 'Business Info',      subtitle: 'Used in bills & PDF' },
+  //   { key: 'pricing',  icon: '💰', title: 'Pricing & Payments', subtitle: 'Per-litre, UPI, WhatsApp' },
+  //   { key: 'upisetting',  icon: '💰', title: 'Upi & Payment Settings', subtitle: 'Per-litre, UPI, WhatsApp' },
+  //   { key: 'boys',     icon: '🚴', title: 'Delivery Boys',      subtitle: 'Manage your delivery team' },
+  //   { key: 'holidays', icon: '🗓', title: 'Holidays',           subtitle: "Days you don't deliver" },
+  //   { key: 'products', icon: '🥛', title: 'Products (Extras)',  subtitle: 'Paneer, curd, ghee, etc.' },
+  //   { key: 'theme',    icon: '🎨', title: 'Appearance',         subtitle: 'Light, dark, or auto' },
+  //   { key: 'lang',     icon: '🌐', title: 'Language',           subtitle: 'English, Hindi, Marathi' }
+  // ];
+   const sections = [
+   { key: 'profile', icon: '👤', title: 'My Profile', subtitle: 'Photo, name, mobile' },
+   { key: 'business', icon: '🏪', title: 'Business Info', subtitle: 'Used in bills & PDF' },
+   { key: 'pricing', icon: '🧮', title: 'Pricing & Payments', subtitle: 'Per-litre, UPI, WhatsApp' },
+   { key: 'upisetting', icon: '📲', title: 'UPI & Payment Settings', subtitle: 'Manage payment methods' },
+   { key: 'boys', icon: '🛵', title: 'Delivery Boys', subtitle: 'Manage your delivery team' },
+   { key: 'holidays', icon: '📅', title: 'Holidays', subtitle: "Days you don't deliver" },
+   { key: 'products', icon: '🧺', title: 'Products (Extras)', subtitle: 'Paneer, curd, ghee, etc.' },
+   { key: 'reports', icon: '📊', title: 'Reports & Analytics', subtitle: 'Track earnings & sales' },
+   { key: 'customers', icon: '👥', title: 'Customers', subtitle: 'Manage customer list' },
+   { key: 'notifications', icon: '🔔', title: 'Notifications', subtitle: 'Alerts & updates' },
+   { key: 'theme', icon: '🎨', title: 'Appearance', subtitle: 'Light, dark, or auto' },
+   { key: 'lang', icon: '🌐', title: 'Language', subtitle: 'English, Hindi, Marathi' }
+   ];
+      
   const sec = _ownerSettingsSection === 'list' ? null : sections.find(x => x.key === _ownerSettingsSection);
 
   $view.appendChild(topbar({
