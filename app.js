@@ -241,6 +241,7 @@ const Store = {
 
   // Sync save: cache locally immediately, push to Supabase in background (debounced)
   save() {
+    this._lastSaveTime = Date.now(); // ← ONLY NEW LINE
     this.cacheLocally();
     if (!sb) return;
     clearTimeout(this.saveTimer);
@@ -379,6 +380,14 @@ subscribeRealtime() {
   this._channel = sb.channel('mm-realtime')
     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
 
+      // ── SELF-ECHO SUPPRESSION ──
+      // Jab hum khud save karte hain, Supabase hame wapas event bhejta hai.
+      // Agar 3 seconds ke andar apna hi save tha, toh ignore karo.
+      if (this._lastSaveTime && Date.now() - this._lastSaveTime < 3000) {
+        // Sirf notifications badge update karo — navigate mat karo
+        return;
+      }
+
       const table = payload.table;
       const record = payload.new ?? payload.old ?? {};
       const currentOid = currentOwnerId();
@@ -389,7 +398,6 @@ subscribeRealtime() {
         if (!App || !App.user) return;
         const notifRecord = payload.new ?? payload.old ?? {};
         const notifUserId = notifRecord.userId || notifRecord.user_id || null;
-        // Strict: must match current user exactly, null also blocked
         if (!notifUserId || notifUserId !== App.user.id) return;
 
         clearTimeout(this._notifTimer);
@@ -427,18 +435,13 @@ subscribeRealtime() {
 
       // ── USERS TABLE ──
       if (table === 'users') {
-        const recordOid = record.ownerId || null;
-        const recordId  = record.id || null;
+        const recordOid  = record.ownerId || null;
+        const recordId   = record.id || null;
         const recordRole = record.role || null;
 
-        // Always ignore admin rows
         if (recordId === 'u_admin' || recordRole === 'admin') return;
-        // Always ignore changes to our own row (we triggered it)
         if (recordId === currentUserId) return;
 
-        // KEY FIX: if we have a currentOid (owner/customer/boy is logged in)
-        // then ONLY process records that belong to OUR dairy.
-        // recordOid null = not yet stamped or orphan = treat as NOT our dairy → ignore
         if (currentOid) {
           if (!recordOid || recordOid !== currentOid) return;
         }
@@ -454,7 +457,7 @@ subscribeRealtime() {
         return;
       }
 
-      // ── SUBSCRIPTION_PLANS — global, silent update only ──
+      // ── SUBSCRIPTION_PLANS ──
       if (table === 'subscription_plans') {
         clearTimeout(this._plansTimer);
         this._plansTimer = setTimeout(() => {
@@ -472,12 +475,10 @@ subscribeRealtime() {
         return;
       }
 
-      // ── DAIRY_SETTINGS — special: allow u_admin row through for everyone ──
+      // ── DAIRY_SETTINGS ──
       if (table === 'dairy_settings') {
         const recordOid = record.ownerId || null;
-        // Only refresh if it's our own settings or the admin's settings (used for UPI/plans)
         if (currentOid && recordOid && recordOid !== currentOid && recordOid !== 'u_admin') return;
-        // If currentOid exists and recordOid is null → ignore (orphan row)
         if (currentOid && !recordOid) return;
         clearTimeout(this._settingsTimer);
         this._settingsTimer = setTimeout(() => {
@@ -490,15 +491,12 @@ subscribeRealtime() {
         return;
       }
 
-      // ── ALL OTHER TABLES (deliveries, pauses, extra_orders, payments, etc.) ──
-      // These are strictly owner-scoped.
+      // ── ALL OTHER TABLES ──
       if (currentOid) {
         const recordOid = record.ownerId || record.owner_id || null;
-        // FIX: null ownerId = orphan/unstamped = NOT our dairy → block
         if (!recordOid || recordOid !== currentOid) return;
       }
 
-      // Passed all filters — this change belongs to our dairy
       clearTimeout(this._refetchTimer);
       this._refetchTimer = setTimeout(() => {
         this.loadFromRemote().then(() => {
