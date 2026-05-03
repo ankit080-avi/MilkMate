@@ -379,22 +379,123 @@ subscribeRealtime() {
   this._channel = sb.channel('mm-realtime')
     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
 
-      // Notifications skip karo
-      if (payload.table === 'notifications') return;
-
-      // ── OWNER SCOPE FILTER ──
-      // Sirf apne dairy ka change process karo
+      const table = payload.table;
+      const record = payload.new || payload.old || {};
       const currentOid = currentOwnerId();
-      if (currentOid) {
-        const record = payload.new || payload.old || {};
-        const recordOid = record.ownerId || record.owner_id || null;
+      const currentUserId = App && App.user && App.user.id;
 
-        // Agar record ka ownerId hai aur current owner ka nahi match karta
-        // toh is change ko ignore karo
+      // ── NOTIFICATIONS TABLE ──
+      // Sirf apne userId ki notification pe react karo
+      // Aur sirf bell badge update karo — full refresh nahi
+      if (table === 'notifications') {
+        if (!App || !App.user) return;
+        const notifUserId = record.userId || record.user_id || null;
+        if (notifUserId && notifUserId !== currentUserId) return;
+
+        clearTimeout(this._notifTimer);
+        this._notifTimer = setTimeout(() => {
+          if (!sb || !App.user) return;
+          sb.from('notifications')
+            .select('*')
+            .eq('userId', App.user.id)
+            .then(({ data }) => {
+              if (!data) return;
+              Store.data.notifications = data.map(n => ({
+                id: n.id, userId: n.userId, type: n.type,
+                title: n.title, body: n.body || '',
+                date: n.date, read: !!n.read, ownerId: n.ownerId || null
+              }));
+              Store.cacheLocally();
+              // Sirf bell badge DOM update karo, navigate nahi
+              document.querySelectorAll('.bell-wrap').forEach(wrap => {
+                const cnt = unreadCount(App.user.id);
+                let badge = wrap.querySelector('.bell-badge');
+                if (cnt > 0) {
+                  if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'bell-badge';
+                    wrap.appendChild(badge);
+                  }
+                  badge.textContent = cnt > 99 ? '99+' : String(cnt);
+                } else {
+                  if (badge) badge.remove();
+                }
+              });
+            });
+        }, 300);
+        return;
+      }
+
+      // ── USERS TABLE ──
+      // Sirf apni dairy ke users pe react karo
+      if (table === 'users') {
+        const recordOid = record.ownerId || null;
+        const recordId = record.id || null;
+        // Ignore karo agar:
+        // - Record kisi aur owner ka hai
+        // - Record admin ka hai (u_admin)
+        // - Record current user hi hai (apna change apne aap trigger hoga)
+        if (recordId === 'u_admin') return;
+        if (record.role === 'admin') return;
+        if (currentOid && recordOid && recordOid !== currentOid) return;
+        if (recordId === currentUserId) return;
+        // Apni dairy ka user change — sirf data update karo
+        clearTimeout(this._refetchTimer);
+        this._refetchTimer = setTimeout(() => {
+          this.loadFromRemote().then(() => {
+            if (App && App.user) {
+              try { navigate(App.route || App.user.role); } catch (e) {}
+            }
+          });
+        }, 400);
+        return;
+      }
+
+      // ── BAAKI SAARI TABLES ──
+      // Owner scope filter — sirf apne dairy ka change process karo
+      if (currentOid) {
+        const recordOid = record.ownerId || record.owner_id || null;
+        // Agar record ka ownerId hai aur current owner se match nahi karta toh ignore
         if (recordOid && recordOid !== currentOid) return;
       }
-      // ─────────────────────────
 
+      // subscription_plans aur dairy_settings global hain
+      // lekin inhe bhi unnecessarily refresh nahi karna
+      if (table === 'subscription_plans') {
+        // Plans global hain — sirf data update karo silently
+        clearTimeout(this._plansTimer);
+        this._plansTimer = setTimeout(() => {
+          sb.from('subscription_plans').select('*').then(({ data }) => {
+            if (data) {
+              Store.data.subscriptionPlans = data.map(p => ({
+                key: p.key, name: p.name, price: Number(p.price),
+                duration_days: Number(p.duration_days),
+                active: p.active !== false, sort_order: Number(p.sort_order) || 0
+              }));
+              Store.cacheLocally();
+            }
+          });
+        }, 300);
+        return;
+      }
+
+      // dairy_settings — sirf apna settings update karo
+      if (table === 'dairy_settings') {
+        const recordOid = record.ownerId || null;
+        if (currentOid && recordOid && recordOid !== currentOid && recordOid !== 'u_admin') return;
+        clearTimeout(this._settingsTimer);
+        this._settingsTimer = setTimeout(() => {
+          this.loadFromRemote().then(() => {
+            if (App && App.user) {
+              try { navigate(App.route || App.user.role); } catch (e) {}
+            }
+          });
+        }, 400);
+        return;
+      }
+
+      // Baki tables: deliveries, pauses, extra_orders, payments, etc.
+      // Yeh owner-scoped hain — upar filter se pass ho ke aaye hain
       clearTimeout(this._refetchTimer);
       this._refetchTimer = setTimeout(() => {
         this.loadFromRemote().then(() => {
@@ -402,11 +503,10 @@ subscribeRealtime() {
             try { navigate(App.route || App.user.role); } catch (e) {}
           }
         });
-      }, 250);
+      }, 400);
     })
     .subscribe();
-},
-   
+},  
   // Realtime Presence — tracks which users currently have the app open.
   // Owner uses Presence.has(userId) to render the green online dot.
   Presence: {
@@ -6633,16 +6733,34 @@ function goNotifications() {
   page.appendChild(list);
 
   if (!sel.mode) {
-    page.appendChild(el('button', {
-      class: 'btn btn-ghost btn-block', style: 'margin-top:14px',
-      onclick: () => {
-        getNotifs(App.user.id).forEach(n => n.read = true);
-        Store.save();
-        toast('Marked as read');
-        goNotifications();
-      }
-    }, 'Mark all as read'));
-    page.appendChild(el('button', {
+    // page.appendChild(el('button', {
+    //   class: 'btn btn-ghost btn-block', style: 'margin-top:14px',
+    //   onclick: () => {
+    //     getNotifs(App.user.id).forEach(n => n.read = true);
+    //     Store.save();
+    //     toast('Marked as read');
+    //     goNotifications();
+    //   }
+    // }, 'Mark all as read'));
+   page.appendChild(el('button', {
+     class: 'btn btn-ghost btn-block', style: 'margin-top:14px',
+     onclick: async () => {
+       const unread = getNotifs(App.user.id).filter(n => !n.read);
+       if (unread.length === 0) return toast('Already all read');
+       unread.forEach(n => n.read = true);
+       Store.cacheLocally();
+       if (sb) {
+         const ids = unread.map(n => n.id);
+         try {
+           await sb.from('notifications').update({ read: true }).in('id', ids);
+         } catch (e) { console.warn('mark read failed', e); }
+       }
+       toast('Marked as read');
+       goNotifications();
+     }
+   }, 'Mark all as read'));
+     
+     page.appendChild(el('button', {
       class: 'btn btn-ghost btn-block', style: 'margin-top:8px;color:var(--danger)',
       onclick: async () => {
         const mine = getNotifs(App.user.id);
@@ -6662,11 +6780,33 @@ function goNotifications() {
 
   $view.appendChild(page);
   // Mark all as read on view (only when not in selection mode)
-  if (!sel.mode) setTimeout(() => {
-    let changed = false;
-    getNotifs(App.user.id).forEach(n => { if (!n.read) { n.read = true; changed = true; } });
-    if (changed) Store.save();
-  }, 1500);
+  // if (!sel.mode) setTimeout(() => {
+  //   let changed = false;
+  //   getNotifs(App.user.id).forEach(n => { if (!n.read) { n.read = true; changed = true; } });
+  //   if (changed) Store.save();
+  // }, 1500);
+// Mark all as read — sirf notifications table update karo, full snapshot nahi
+if (!sel.mode) setTimeout(async () => {
+  const unread = getNotifs(App.user.id).filter(n => !n.read);
+  if (unread.length === 0) return;
+  // Local update
+  unread.forEach(n => n.read = true);
+  Store.cacheLocally(); // localStorage update, Supabase nahi
+  // Sirf notifications table mein read=true karo
+  // Yeh dusre owners ko trigger nahi karega kyunki
+  // subscribeRealtime mein userId filter hai
+  if (sb) {
+    const ids = unread.map(n => n.id);
+    try {
+      await sb.from('notifications')
+        .update({ read: true })
+        .in('id', ids);
+    } catch (e) {
+      console.warn('notif read update failed', e);
+    }
+  }
+}, 1500);
+
 }
 
 /* ─── Router ───────────────────────────────────────────────── */
