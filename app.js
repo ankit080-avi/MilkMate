@@ -4140,7 +4140,7 @@ else if (_ownerSettingsSection === 'upisetting') {
       class: 'input',
       id: 'st-wa',
       type: 'tel',
-      placeholder: '919876543210',
+      placeholder: '918858141463',
       value: s.ownerWhatsApp || ''
     })
   ]));
@@ -4332,7 +4332,62 @@ else if (_ownerSettingsSection === 'notifications') {
       )
     ]));
   }
+////Cutomers
+else if (_ownerSettingsSection === 'customers') {
 
+  page.appendChild(el('div', { class: 'section-head' }, [
+    el('h2', {}, 'Customers'),
+    el('button', { class: 'link-btn', onclick: () => customerForm(null) }, '+ Add')
+  ]));
+
+  const customers = Store.data.users.filter(
+    u => u.role === 'customer' && u.ownerId === App.user.id
+  );
+
+  if (customers.length === 0) {
+    page.appendChild(el('div', {
+      class: 'card text-muted',
+      style: 'font-size:13px'
+    }, 'No customers yet. Add one to start managing deliveries.'));
+  } else {
+
+    const list = el('div', { class: 'list' });
+
+    customers.forEach(c => {
+
+      const bill = customerMonthBill(c.id, monthKey());
+
+      list.appendChild(el('div', {
+        class: 'list-item is-clickable',
+        onclick: () => customerForm(c)
+      }, [
+
+        avatarFor(c),
+
+        el('div', { class: 'li-body' }, [
+          el('div', { class: 'li-title' }, c.name),
+          el('div', { class: 'li-sub' },
+            '+91 ' + c.mobile + ' · ' + fmtQty(c.dailyMl)
+          )
+        ]),
+
+        el('div', { class: 'li-aside', style: 'text-align:right' }, [
+          bill.due > 0
+            ? el('div', {
+                class: 'amount',
+                style: 'color:var(--warning);font-size:13px'
+              }, fmtMoney(bill.due) + ' due')
+            : el('div', {
+                style: 'color:var(--text-muted);font-size:12px'
+              }, 'Settled')
+        ])
+
+      ]));
+    });
+
+    page.appendChild(list);
+  }
+}
      
   else if (_ownerSettingsSection === 'lang') {
     [
