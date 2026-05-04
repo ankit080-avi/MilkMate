@@ -1160,6 +1160,96 @@ const Biometric = {
   }
 };
 
+// Reusable fingerprint enable/disable card. Used in owner Settings → Profile,
+// the customer / delivery-boy account sheet, and the admin settings modal.
+// `rerender` is called after a successful enable / disable so the caller can
+// refresh whatever screen the card lives on.
+function renderBiometricCard(user, rerender) {
+  const card = el('div', { class: 'card', style: 'margin-top:12px' });
+  card.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-bottom:4px' }, '🔒 Fingerprint login'));
+  const status = el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:8px' }, 'Checking…');
+  card.appendChild(status);
+  const toggleSlot = el('div', {});
+  card.appendChild(toggleSlot);
+
+  Biometric.isAvailable().then((res) => {
+    if (!res.ok) {
+      status.textContent =
+        res.reason === 'web'           ? 'Available only inside the MilkMate Android app.' :
+        res.reason === 'plugin-missing' ? 'Install the latest MilkMate APK to enable fingerprint login.' :
+        res.reason === 'no-hardware'   ? 'No fingerprint set up on this device — add one in Android Settings → Security.' :
+                                          'Fingerprint not available on this device.';
+      return;
+    }
+    const enabled = Biometric.isEnabledForMobile(user.mobile);
+    status.textContent = enabled
+      ? 'Enabled — log in with your fingerprint instead of typing your password.'
+      : 'Turn on to log in with your fingerprint instead of typing your password.';
+    toggleSlot.appendChild(el('div', { class: 'row', style: 'justify-content:space-between;align-items:center;padding:6px 0' }, [
+      el('span', { style: 'font-weight:600' }, enabled ? 'On' : 'Off'),
+      el('input', {
+        type: 'checkbox', checked: enabled,
+        style: 'width:22px;height:22px;accent-color:var(--primary);cursor:pointer',
+        onchange: async (e) => {
+          const checked = e.target.checked;
+          if (checked) {
+            let creds = null;
+            try { creds = JSON.parse(localStorage.getItem('milkmate-creds') || 'null'); } catch (_) {}
+            if (!creds || creds.mobile !== user.mobile || !creds.password) {
+              toast('Log in once with "Remember password" checked, then enable fingerprint', 'error');
+              e.target.checked = false;
+              return;
+            }
+            try {
+              await Biometric.verify('Confirm to enable fingerprint login');
+              await Biometric.setCredentials(creds.mobile, creds.password);
+              toast('Fingerprint login enabled', 'success');
+              if (typeof rerender === 'function') rerender();
+            } catch (err) {
+              console.warn('biometric enable failed', err);
+              toast('Couldn\'t enable fingerprint', 'error');
+              e.target.checked = false;
+            }
+          } else {
+            await Biometric.deleteCredentials();
+            toast('Fingerprint login disabled');
+            if (typeof rerender === 'function') rerender();
+          }
+        }
+      })
+    ]));
+  });
+
+  return card;
+}
+
+// Opens a small Account sheet for customer / delivery_boy. Owner/admin have
+// their own dedicated settings flows. Hosts the fingerprint toggle so every
+// role can manage biometric login from inside the app.
+function openAccountSheet() {
+  if (!App.user) return;
+  const user = App.user;
+  const wrap = el('div', {});
+  wrap.appendChild(el('div', { class: 'card', style: 'display:flex;align-items:center;gap:12px' }, [
+    el('div', { style: 'width:48px;height:48px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-weight:800;font-size:20px' },
+      (user.name || '?')[0].toUpperCase()),
+    el('div', { style: 'flex:1' }, [
+      el('div', { style: 'font-weight:700' }, user.name || ''),
+      el('div', { class: 'text-muted', style: 'font-size:12px' },
+        '+91 ' + (user.mobile || '') + ' · ' + (user.role === 'delivery_boy' ? 'Delivery boy' : 'Customer'))
+    ])
+  ]));
+  wrap.appendChild(renderBiometricCard(user, () => {
+    closeModal();
+    openAccountSheet();
+  }));
+  wrap.appendChild(el('button', {
+    class: 'btn btn-ghost btn-block', style: 'margin-top:12px;color:var(--danger)',
+    onclick: () => { closeModal(); logout(); }
+  }, 'Sign out'));
+  openModal('Account', wrap);
+}
+
 // Returns a "● Online" pill that's hidden via CSS when the user is offline.
 // Always emit the node so the presence-change handler can toggle visibility live
 // without re-rendering the whole page.
@@ -1318,7 +1408,8 @@ function notify(userId, type, title, body) {
   }
 }
 function showNotificationPopup(type, title, body) {
-   if (Store.data.settings && Store.data.settings.toastEnabled === false) return;
+  // Per-device preference. Default ON; user can turn off in Settings → Notifications.
+  if (localStorage.getItem('mm-toast-enabled') === 'false') return;
   // ── DEDUP GUARD ──
   const dedupKey = type + '|' + title + '|' + body;
   if (showNotificationPopup._lastKey === dedupKey && 
@@ -1514,7 +1605,7 @@ function topbarAvatar(user) {
   if (!user) return null;
   const onClick = user.role === 'owner' ? () => openOwnerSettings()
                 : user.role === 'admin' ? () => adminSettingsModal()
-                : null;
+                : () => openAccountSheet();
   const initial = (user.name || '?')[0].toUpperCase();
   return el('button', {
     class: 'topbar-avatar' + (user.photo ? ' has-photo' : ''),
@@ -4649,64 +4740,9 @@ function ownerSettings(target) {
     }, 'Save'));
     page.appendChild(details);
 
-    // ── Fingerprint login toggle (Capacitor APK only) ──
-    const bioCard = el('div', { class: 'card', style: 'margin-top:12px' });
-    bioCard.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-bottom:4px' }, '🔒 Fingerprint login'));
-    const bioStatus = el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:8px' }, 'Checking…');
-    bioCard.appendChild(bioStatus);
-    const bioToggleSlot = el('div', {});
-    bioCard.appendChild(bioToggleSlot);
-    page.appendChild(bioCard);
-
-    // Async availability check + render real toggle (or unavailable hint)
-    Biometric.isAvailable().then((res) => {
-      if (!res.ok) {
-        const msg = res.reason === 'web'           ? 'Available only inside the MilkMate Android app.'
-                  : res.reason === 'plugin-missing' ? 'Install the latest MilkMate APK to enable fingerprint login.'
-                  : res.reason === 'no-hardware'   ? 'No fingerprint set up on this device — add one in Android Settings → Security.'
-                  : 'Fingerprint not available on this device.';
-        bioStatus.textContent = msg;
-        return;
-      }
-      const enabled = Biometric.isEnabledForMobile(me.mobile);
-      bioStatus.textContent = enabled
-        ? 'Enabled — log in with your fingerprint instead of typing your password.'
-        : 'Turn on to log in with your fingerprint instead of typing your password.';
-      bioToggleSlot.appendChild(el('div', { class: 'row', style: 'justify-content:space-between;align-items:center;padding:6px 0' }, [
-        el('span', { style: 'font-weight:600' }, enabled ? 'On' : 'Off'),
-        el('input', {
-          type: 'checkbox', checked: enabled,
-          style: 'width:22px;height:22px;accent-color:var(--primary);cursor:pointer',
-          onchange: async (e) => {
-            const checked = e.target.checked;
-            if (checked) {
-              // Need a password to store. Use the remembered creds from "Remember password" login.
-              let creds = null;
-              try { creds = JSON.parse(localStorage.getItem('milkmate-creds') || 'null'); } catch (_) {}
-              if (!creds || creds.mobile !== me.mobile || !creds.password) {
-                toast('Log in once with "Remember password" checked, then enable fingerprint', 'error');
-                e.target.checked = false;
-                return;
-              }
-              try {
-                await Biometric.verify('Confirm to enable fingerprint login');
-                await Biometric.setCredentials(creds.mobile, creds.password);
-                toast('Fingerprint login enabled', 'success');
-                ownerSettings('profile');
-              } catch (err) {
-                console.warn('biometric enable failed', err);
-                toast('Couldn\'t enable fingerprint', 'error');
-                e.target.checked = false;
-              }
-            } else {
-              await Biometric.deleteCredentials();
-              toast('Fingerprint login disabled');
-              ownerSettings('profile');
-            }
-          }
-        })
-      ]));
-    });
+    // Fingerprint login toggle (handled by reusable card so customer/boy
+    // can use the same component from their account sheet).
+    page.appendChild(renderBiometricCard(me, () => ownerSettings('profile')));
   }
 
   // ─── Business info ───────────────────────────────────────
@@ -5022,8 +5058,9 @@ else if (_ownerSettingsSection === 'upisetting') {
 
   // ─── Language ────────────────────────────────────────────
 else if (_ownerSettingsSection === 'notifications') {
-    const s = Store.data.settings;
-    const isEnabled = s.toastEnabled !== false;
+    // Per-device preference (localStorage) — does NOT persist to Supabase, so
+    // owner can have popups on phone but not on a shared tablet etc.
+    const isEnabled = localStorage.getItem('mm-toast-enabled') !== 'false';
     page.appendChild(el('div', { class: 'card' }, [
       el('div', { class: 'row', style: 'justify-content:space-between;align-items:center;padding:8px 0' }, [
         el('div', {}, [
@@ -5036,8 +5073,7 @@ else if (_ownerSettingsSection === 'notifications') {
           checked: isEnabled,
           style: 'width:22px;height:22px;accent-color:var(--primary);cursor:pointer',
           onchange: (e) => {
-            s.toastEnabled = e.target.checked;
-            Store.save();
+            localStorage.setItem('mm-toast-enabled', e.target.checked ? 'true' : 'false');
             toast(e.target.checked ? '🔔 Notifications ON' : '🔕 Notifications OFF');
             ownerSettings('notifications');
           }
