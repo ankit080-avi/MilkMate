@@ -375,6 +375,16 @@ const Store = {
   //     .subscribe();
   // },
 
+// Skip auto-render when user is engaged with a modal, owner-settings,
+// or any non-top-level screen. Otherwise a realtime event would yank them
+// back to the dashboard mid-edit. Data still loads in the background.
+_shouldAutoRerender() {
+  if (!App || !App.user) return false;
+  if ($modal && !$modal.hidden) return false;
+  if (typeof _ownerSettingsEntered !== 'undefined' && _ownerSettingsEntered) return false;
+  return true;
+},
+
 subscribeRealtime() {
   if (!sb || this._channel) return;
   this._channel = sb.channel('mm-realtime')
@@ -449,7 +459,7 @@ subscribeRealtime() {
         clearTimeout(this._refetchTimer);
         this._refetchTimer = setTimeout(() => {
           this.loadFromRemote().then(() => {
-            if (App && App.user) {
+            if (Store._shouldAutoRerender()) {
               try { navigate(App.route || App.user.role); } catch (e) {}
             }
           });
@@ -483,7 +493,7 @@ subscribeRealtime() {
         clearTimeout(this._settingsTimer);
         this._settingsTimer = setTimeout(() => {
           this.loadFromRemote().then(() => {
-            if (App && App.user) {
+            if (Store._shouldAutoRerender()) {
               try { navigate(App.route || App.user.role); } catch (e) {}
             }
           });
@@ -1732,6 +1742,13 @@ function viewLogin() {
 
     root.appendChild(form);
     $view.appendChild(root);
+    // Browsers don't honour the `autofocus` attribute on dynamically-inserted
+    // elements after the initial page load — so focus the first input ourselves
+    // whenever the login stage changes (phone → password, etc.).
+    setTimeout(() => {
+      const target = form.querySelector('input[autofocus]') || form.querySelector('input');
+      if (target) try { target.focus({ preventScroll: true }); } catch (e) { try { target.focus(); } catch (_) {} }
+    }, 0);
   };
 
   const next = async () => {
@@ -2783,6 +2800,10 @@ function openRenewModal() {
 }
 
 function viewOwner() {
+  // Landing on the owner home means we're no longer inside the settings stack.
+  // Keep this flag in sync so realtime auto-rerender knows where the user actually is.
+  _ownerSettingsEntered = false;
+  _ownerSettingsSection = 'list';
   const tabs = [
     { key: 'home',      label: t('home'),      icon: 'home' },
     { key: 'customers', label: t('customers'), icon: 'users' },
