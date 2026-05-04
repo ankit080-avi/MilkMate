@@ -2336,9 +2336,14 @@ function adminSettingsModal() {
       });
     } else if (view === 'theme') {
       [
-        { v: 'light', l: '☀️ Light',                    h: 'Bright background, classic look' },
-        { v: 'dark',  l: '🌙 Dark',                     h: 'Easier on the eyes at night' },
-        { v: 'auto',  l: '⚙️ Auto · match phone',        h: 'Switches automatically with system' }
+        { v: 'light',    l: '☀️ Light',              h: 'Bright background, classic look' },
+        { v: 'dark',     l: '🌙 Dark',               h: 'Easier on the eyes at night' },
+        { v: 'auto',     l: '⚙️ Auto · match phone', h: 'Switches automatically with system' },
+        { v: 'cream',    l: '🥛 Cream',              h: 'Soft cream + brown-green — dairy vibe' },
+        { v: 'midnight', l: '🌌 Midnight blue',       h: 'Deeper, bluer dark mode' },
+        { v: 'contrast', l: '⬛ High contrast',        h: 'Black-on-white, easier to read' },
+        { v: 'forest',   l: '🌿 Forest',             h: 'Deep green on cream' },
+        { v: 'sepia',    l: '📜 Sepia',              h: 'Warm paper tones, easy on eyes' }
       ].forEach(opt => {
         const selected = pending.theme === opt.v;
         body.appendChild(el('button', {
@@ -4800,9 +4805,14 @@ else if (_ownerSettingsSection === 'upisetting') {
   // ─── Appearance / Theme ──────────────────────────────────
   else if (_ownerSettingsSection === 'theme') {
     [
-      { v: 'light', l: '☀️ Light',                    h: 'Bright background, classic look' },
-      { v: 'dark',  l: '🌙 Dark',                     h: 'Easier on the eyes at night' },
-      { v: 'auto',  l: '⚙️ Auto · match phone',        h: 'Switches automatically with system' }
+      { v: 'light',    l: '☀️ Light',              h: 'Bright background, classic look' },
+      { v: 'dark',     l: '🌙 Dark',               h: 'Easier on the eyes at night' },
+      { v: 'auto',     l: '⚙️ Auto · match phone', h: 'Switches automatically with system' },
+      { v: 'cream',    l: '🥛 Cream',              h: 'Soft cream + brown-green — dairy vibe' },
+      { v: 'midnight', l: '🌌 Midnight blue',       h: 'Deeper, bluer dark mode' },
+      { v: 'contrast', l: '⬛ High contrast',        h: 'Black-on-white, easier to read' },
+      { v: 'forest',   l: '🌿 Forest',             h: 'Deep green on cream' },
+      { v: 'sepia',    l: '📜 Sepia',              h: 'Warm paper tones, easy on eyes' }
     ].forEach(opt => {
       const selected = (Store.data.theme || 'auto') === opt.v;
       page.appendChild(el('button', {
