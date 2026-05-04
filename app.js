@@ -1106,6 +1106,60 @@ const Push = {
   }
 };
 
+// ─── Fingerprint / biometric login (Capacitor APK only) ────────────────
+// Wraps @capgo/capacitor-native-biometric. Falls back gracefully when the
+// plugin isn't synced yet (so the JS deploy is safe to ship before the new
+// APK is rebuilt). Credentials are stored in Android Keystore via the plugin.
+const Biometric = {
+  SERVER: 'milkmate',
+  isCapacitor() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  },
+  _plugin() {
+    return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativeBiometric;
+  },
+  async isAvailable() {
+    if (!this.isCapacitor()) return { ok: false, reason: 'web' };
+    const p = this._plugin();
+    if (!p) return { ok: false, reason: 'plugin-missing' };
+    try {
+      const r = await p.isAvailable();
+      return r && r.isAvailable ? { ok: true } : { ok: false, reason: 'no-hardware' };
+    } catch (e) { return { ok: false, reason: 'error' }; }
+  },
+  async setCredentials(mobile, password) {
+    const p = this._plugin();
+    if (!p) throw new Error('biometric-plugin-missing');
+    await p.setCredentials({ username: mobile, password, server: this.SERVER });
+    localStorage.setItem('mm-biometric-mobile', mobile);
+  },
+  async deleteCredentials() {
+    const p = this._plugin();
+    try { if (p) await p.deleteCredentials({ server: this.SERVER }); } catch (e) {}
+    localStorage.removeItem('mm-biometric-mobile');
+  },
+  async getCredentials() {
+    const p = this._plugin();
+    if (!p) return null;
+    try {
+      const c = await p.getCredentials({ server: this.SERVER });
+      return c && c.username ? c : null;
+    } catch (e) { return null; }
+  },
+  async verify(reason) {
+    const p = this._plugin();
+    if (!p) throw new Error('biometric-plugin-missing');
+    await p.verifyIdentity({
+      reason: reason || 'Confirm your identity',
+      title: 'MilkMate',
+      subtitle: 'Unlock with fingerprint'
+    });
+  },
+  isEnabledForMobile(mobile) {
+    return !!mobile && localStorage.getItem('mm-biometric-mobile') === mobile;
+  }
+};
+
 // Returns a "● Online" pill that's hidden via CSS when the user is offline.
 // Always emit the node so the presence-change handler can toggle visibility live
 // without re-rendering the whole page.
@@ -1628,6 +1682,33 @@ function viewLogin() {
         el('span', {}, 'Remember password on this device')
       ]));
       form.appendChild(el('button', { class: 'btn btn-primary btn-block', type: 'submit' }, t('login')));
+      // Fingerprint login button — only when biometric is enabled for this mobile.
+      // Renders eagerly; the click handler checks plugin availability.
+      if (Biometric.isEnabledForMobile(state.mobile)) {
+        form.appendChild(el('button', {
+          class: 'btn btn-ghost btn-block', type: 'button', style: 'margin-top:8px',
+          onclick: async () => {
+            const avail = await Biometric.isAvailable();
+            if (!avail.ok) {
+              toast('Fingerprint not available right now', 'error');
+              return;
+            }
+            try {
+              await Biometric.verify('Log in to MilkMate');
+              const creds = await Biometric.getCredentials();
+              if (!creds || !creds.password) {
+                toast('No saved fingerprint credentials', 'error');
+                return;
+              }
+              state.password = creds.password;
+              next();
+            } catch (e) {
+              console.warn('biometric login failed', e);
+              // Verify cancellation: don't show an error toast (user just dismissed)
+            }
+          }
+        }, '🔒 Login with fingerprint'));
+      }
       form.appendChild(el('button', {
         class: 'link-btn', type: 'button', style: 'margin-top:12px',
         onclick: () => { state.stage = 'phone'; state.password = ''; render(); }
@@ -4567,6 +4648,65 @@ function ownerSettings(target) {
       }
     }, 'Save'));
     page.appendChild(details);
+
+    // ── Fingerprint login toggle (Capacitor APK only) ──
+    const bioCard = el('div', { class: 'card', style: 'margin-top:12px' });
+    bioCard.appendChild(el('div', { style: 'font-weight:700;font-size:14px;margin-bottom:4px' }, '🔒 Fingerprint login'));
+    const bioStatus = el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:8px' }, 'Checking…');
+    bioCard.appendChild(bioStatus);
+    const bioToggleSlot = el('div', {});
+    bioCard.appendChild(bioToggleSlot);
+    page.appendChild(bioCard);
+
+    // Async availability check + render real toggle (or unavailable hint)
+    Biometric.isAvailable().then((res) => {
+      if (!res.ok) {
+        const msg = res.reason === 'web'           ? 'Available only inside the MilkMate Android app.'
+                  : res.reason === 'plugin-missing' ? 'Install the latest MilkMate APK to enable fingerprint login.'
+                  : res.reason === 'no-hardware'   ? 'No fingerprint set up on this device — add one in Android Settings → Security.'
+                  : 'Fingerprint not available on this device.';
+        bioStatus.textContent = msg;
+        return;
+      }
+      const enabled = Biometric.isEnabledForMobile(me.mobile);
+      bioStatus.textContent = enabled
+        ? 'Enabled — log in with your fingerprint instead of typing your password.'
+        : 'Turn on to log in with your fingerprint instead of typing your password.';
+      bioToggleSlot.appendChild(el('div', { class: 'row', style: 'justify-content:space-between;align-items:center;padding:6px 0' }, [
+        el('span', { style: 'font-weight:600' }, enabled ? 'On' : 'Off'),
+        el('input', {
+          type: 'checkbox', checked: enabled,
+          style: 'width:22px;height:22px;accent-color:var(--primary);cursor:pointer',
+          onchange: async (e) => {
+            const checked = e.target.checked;
+            if (checked) {
+              // Need a password to store. Use the remembered creds from "Remember password" login.
+              let creds = null;
+              try { creds = JSON.parse(localStorage.getItem('milkmate-creds') || 'null'); } catch (_) {}
+              if (!creds || creds.mobile !== me.mobile || !creds.password) {
+                toast('Log in once with "Remember password" checked, then enable fingerprint', 'error');
+                e.target.checked = false;
+                return;
+              }
+              try {
+                await Biometric.verify('Confirm to enable fingerprint login');
+                await Biometric.setCredentials(creds.mobile, creds.password);
+                toast('Fingerprint login enabled', 'success');
+                ownerSettings('profile');
+              } catch (err) {
+                console.warn('biometric enable failed', err);
+                toast('Couldn\'t enable fingerprint', 'error');
+                e.target.checked = false;
+              }
+            } else {
+              await Biometric.deleteCredentials();
+              toast('Fingerprint login disabled');
+              ownerSettings('profile');
+            }
+          }
+        })
+      ]));
+    });
   }
 
   // ─── Business info ───────────────────────────────────────
