@@ -4599,6 +4599,53 @@ function ownerSettings(target) {
 
   // ─── Pricing & payments ──────────────────────────────────
   else if (_ownerSettingsSection === 'pricing') {
+    // ── Current subscription card — always visible here so the owner can
+    //    confirm which plan is active even when the home banner is hidden.
+    const exp = ownerExpiryInfo(App.user);
+    if (exp.state !== 'unlimited') {
+      const isTrial = exp.plan === 'trial';
+      const planName = isTrial ? 'Free trial'
+                              : (getPlanByKey(exp.plan)?.name || exp.plan || 'No plan');
+      const stateLabel = exp.state === 'active' ? 'Active'
+                       : exp.state === 'grace'  ? 'Grace period'
+                       : 'Expired';
+      const stateColor = exp.state === 'active' ? 'var(--success)'
+                       : exp.state === 'grace'  ? 'var(--warning)'
+                       : 'var(--danger)';
+      const expiresStr = exp.expiresAt ? prettyDate(String(exp.expiresAt).slice(0, 10)) : '—';
+      const subCard = el('div', {
+        class: 'card', style: 'margin-bottom:14px;padding:14px;border:1px solid var(--line)'
+      }, [
+        el('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px' }, [
+          el('div', { style: 'font-weight:700;font-size:15px' }, 'Current subscription'),
+          el('span', {
+            class: 'badge', style: 'background:' + stateColor + ';color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700'
+          }, stateLabel.toUpperCase())
+        ]),
+        el('div', { class: 'row gap-md', style: 'flex-wrap:wrap;gap:14px 24px' }, [
+          el('div', {}, [
+            el('div', { class: 'text-muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.5px' }, 'Plan'),
+            el('div', { style: 'font-weight:700;margin-top:2px' }, planName + (isTrial ? ' 🎁' : ''))
+          ]),
+          el('div', {}, [
+            el('div', { class: 'text-muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.5px' }, exp.state === 'expired' ? 'Expired on' : 'Expires on'),
+            el('div', { style: 'font-weight:700;margin-top:2px' }, expiresStr)
+          ]),
+          exp.daysLeft != null ? el('div', {}, [
+            el('div', { class: 'text-muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.5px' }, 'Time left'),
+            el('div', { style: 'font-weight:700;margin-top:2px;color:' + (exp.daysLeft <= 7 ? 'var(--warning)' : 'inherit') },
+              exp.daysLeft >= 0 ? exp.daysLeft + ' day' + (exp.daysLeft === 1 ? '' : 's')
+                                : Math.abs(exp.daysLeft) + ' day' + (Math.abs(exp.daysLeft) === 1 ? '' : 's') + ' over')
+          ]) : null
+        ]),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', style: 'margin-top:12px',
+          onclick: () => openRenewModal()
+        }, exp.state === 'active' && exp.plan !== 'trial' ? 'Change plan / extend' : 'Renew now')
+      ]);
+      page.appendChild(subCard);
+    }
+
     const gen = el('div', { class: 'card' });
     gen.appendChild(el('div', { class: 'field' }, [
       el('label', {}, 'Price per litre (₹)'),
