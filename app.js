@@ -2655,6 +2655,10 @@ function renderOwnerSubscriptionCard() {
   if (!App.user || App.user.role !== 'owner') return null;
   const exp = ownerExpiryInfo(App.user);
   if (exp.state === 'unlimited') return null;
+  // Paid plans with plenty of runway don't need a banner — only show the
+  // counter for trial users (where 7 days is the whole subscription) and
+  // anyone in the renewal window (≤7 days, grace, or expired).
+  if (exp.state === 'active' && exp.daysLeft > 7 && exp.plan !== 'trial') return null;
   const planLabel = exp.plan === 'trial' ? 'Free trial' : (getPlanByKey(exp.plan)?.name || (exp.plan || 'No plan'));
 
   let bgClass, label, sub;
