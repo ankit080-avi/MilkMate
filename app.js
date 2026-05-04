@@ -1914,6 +1914,34 @@ function viewAdmin() {
     subtitle: 'Manage dairy owners',
     bell: true,
     right: el('div', { class: 'row gap-sm' }, [
+      el('button', {
+        class: 'icon-btn', 'aria-label': 'Refresh',
+        html: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>',
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          if (btn.dataset.busy === '1') return;
+          btn.dataset.busy = '1';
+          btn.style.opacity = '0.5';
+          btn.style.pointerEvents = 'none';
+          const beforePending = Store.data.users.filter(u => u.role === 'owner' && u.status === 'pending').length;
+          try {
+            const ok = await Store.loadFromRemote();
+            if (ok === false) {
+              toast('Offline — using cached data', 'error');
+            } else {
+              const afterPending = Store.data.users.filter(u => u.role === 'owner' && u.status === 'pending').length;
+              const diff = afterPending - beforePending;
+              if (diff > 0)      toast(diff + ' new application' + (diff > 1 ? 's' : ''), 'success');
+              else if (diff < 0) toast('Updated', 'success');
+              else               toast('Up to date');
+            }
+          } catch (err) {
+            console.warn('admin refresh failed', err);
+            toast('Refresh failed', 'error');
+          }
+          viewAdmin();
+        }
+      }),
       el('button', { class: 'icon-btn', onclick: () => adminSettingsModal(), 'aria-label': 'Admin settings', html: ICON.settings || '⚙️' }),
       el('button', { class: 'icon-btn', onclick: () => { setSession(null); navigate('login'); }, 'aria-label': 'Sign out', html: ICON.logout || '⤴' })
     ])
@@ -2510,7 +2538,7 @@ function adminOwnerCustomers(ownerId) {
     page.appendChild(el('div', { class: 'section-head', style: 'margin-top:14px' }, [el('h2', {}, 'Delivery boys')]));
     const list = el('div', { class: 'list' });
     boys.forEach(b => {
-      const assignedCount = Store.data.users.filter(u => u.role === 'customer' && u.assignedBoyId === b.id).length;
+      const assignedCount = Store.data.users.filter(u => u.role === 'customer' && u.ownerId === ownerId && u.assignedBoyId === b.id).length;
       list.appendChild(el('div', { class: 'list-item' }, [
         avatarFor(b),
         el('div', { class: 'li-body' }, [
@@ -2788,10 +2816,11 @@ function ownerHome() {
 
   const today = todayISO();
   const customers = getCustomers();
-  const todayDeliveries = Store.data.deliveries.filter(d => d.date === today && d.status === 'delivered');
+  const customerIds = new Set(customers.map(c => c.id));
+  const todayDeliveries = Store.data.deliveries.filter(d => customerIds.has(d.customerId) && d.date === today && d.status === 'delivered');
   const todayMl = todayDeliveries.reduce((s, d) => s + d.ml, 0);
   const month = monthKey();
-  const monthDeliveries = Store.data.deliveries.filter(d => d.date.startsWith(month) && d.status === 'delivered');
+  const monthDeliveries = Store.data.deliveries.filter(d => customerIds.has(d.customerId) && d.date.startsWith(month) && d.status === 'delivered');
   const monthRev = customers.reduce((s, c) => s + customerMonthBill(c.id, month).total, 0);
   const pendingPayments = customers.reduce((s, c) => s + customerMonthBill(c.id, month).due, 0);
 
@@ -2830,7 +2859,7 @@ function ownerHome() {
   ]));
 
   // Pending orders card
-  const pendingOrders = Store.data.extraOrders.filter(o => o.status === 'pending' || o.status === 'confirmed');
+  const pendingOrders = Store.data.extraOrders.filter(o => customerIds.has(o.customerId) && (o.status === 'pending' || o.status === 'confirmed'));
   if (pendingOrders.length) {
     const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
     page.appendChild(el('div', { class: 'card', style: 'margin-top:14px;cursor:pointer', onclick: () => ownerOrdersInbox() }, [
