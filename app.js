@@ -1160,6 +1160,85 @@ const Biometric = {
   }
 };
 
+// Re-auth lock: prompts fingerprint when the app returns to the foreground
+// for a logged-in user who has biometric enabled. Uses visibilitychange
+// (works in both Capacitor WebView and PWA). HIDE_THRESHOLD_MS avoids
+// flicker locks from transient OS chrome (notification shade, etc).
+const AppLock = {
+  HIDE_THRESHOLD_MS: 800,
+  _hiddenAt: 0,
+  _locked: false,
+  _initialized: false,
+  shouldGuard() {
+    if (!App.user) return false;
+    if (!Biometric.isCapacitor()) return false;
+    if (!Biometric.isEnabledForMobile(App.user.mobile)) return false;
+    return true;
+  },
+  init() {
+    if (this._initialized) return;
+    this._initialized = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this._hiddenAt = Date.now();
+      } else if (document.visibilityState === 'visible') {
+        const gap = this._hiddenAt ? (Date.now() - this._hiddenAt) : 0;
+        this._hiddenAt = 0;
+        if (gap >= this.HIDE_THRESHOLD_MS && this.shouldGuard()) this.lock();
+      }
+    });
+  },
+  lock() {
+    if (this._locked) return;
+    if (!this.shouldGuard()) return;
+    this._locked = true;
+    const overlay = el('div', {
+      id: 'mm-applock',
+      style: [
+        'position:fixed', 'inset:0', 'z-index:9999',
+        'background:#FAFAF7', 'display:flex',
+        'flex-direction:column', 'align-items:center', 'justify-content:center',
+        'padding:24px', 'gap:14px'
+      ].join(';')
+    });
+    overlay.appendChild(el('div', { style: 'font-size:48px' }, '🔒'));
+    overlay.appendChild(el('div', { style: 'font-weight:700;font-size:18px' }, 'MilkMate locked'));
+    const sub = el('div', { class: 'text-muted', style: 'font-size:13px;text-align:center;max-width:280px' },
+      'Verify with fingerprint to continue.');
+    overlay.appendChild(sub);
+    const unlockBtn = el('button', { class: 'btn btn-primary', style: 'margin-top:8px;min-width:180px' }, 'Unlock');
+    const signOutBtn = el('button', { class: 'btn btn-ghost', style: 'font-size:12px' }, 'Sign out');
+    overlay.appendChild(unlockBtn);
+    overlay.appendChild(signOutBtn);
+    document.body.appendChild(overlay);
+    document.body.style.overflow = 'hidden';
+
+    const tryUnlock = async () => {
+      try {
+        await Biometric.verify('Unlock MilkMate');
+        this._unlock();
+      } catch (e) {
+        console.warn('AppLock verify failed', e);
+        sub.textContent = 'Verification cancelled. Tap Unlock to try again.';
+      }
+    };
+    unlockBtn.addEventListener('click', tryUnlock);
+    signOutBtn.addEventListener('click', () => {
+      this._unlock();
+      try { setSession(null); } catch (_) {}
+      try { navigate('login'); } catch (_) {}
+    });
+    // Auto-prompt once the overlay is on screen.
+    setTimeout(tryUnlock, 150);
+  },
+  _unlock() {
+    const o = document.getElementById('mm-applock');
+    if (o && o.parentNode) o.parentNode.removeChild(o);
+    document.body.style.overflow = '';
+    this._locked = false;
+  }
+};
+
 // Reusable fingerprint enable/disable card. Used in owner Settings → Profile,
 // the customer / delivery-boy account sheet, and the admin settings modal.
 // `rerender` is called after a successful enable / disable so the caller can
@@ -7192,6 +7271,7 @@ if (session) {
 } else {
   navigate('login');
 }
+AppLock.init();
 // Slow path: fetch fresh from Supabase, replace, re-render
 Store.load().catch(e => console.warn('Store.load failed', e));
 
